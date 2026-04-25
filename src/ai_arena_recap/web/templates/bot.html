@@ -23,75 +23,63 @@
   {% endif %}
 
   <h2>Match history</h2>
-  <p class="hint">Click any column header to sort. Hover a header and click the <strong>▼</strong> on its right (or right-click) to hide / show columns. Type in the boxes under the headers to filter.</p>
-  <div id="matches-table" class="tabulator-host"></div>
+  <p class="hint">Click any column header to sort. Click the ☰ icon on a header for filter / pin / autosize. Use the <strong>Columns</strong> button below to show / hide columns. Scroll to load more rows.</p>
+  <div id="matches-toolbar" class="grid-toolbar"></div>
+  <div id="matches-grid" class="ag-theme-quartz-dark grid-host"></div>
 
   <script>
     document.addEventListener("DOMContentLoaded", () => {
       const botId = {{ bot.id }};
-      new Tabulator("#matches-table", {
-        ajaxURL: `/api/bots/${botId}/matches.json`,
-        pagination: true,
-        paginationMode: "remote",
-        paginationSize: 50,
-        paginationSizeSelector: [25, 50, 100, 200],
-        dataSendParams: { page: "page", size: "size" },
-        dataReceiveParams: { last_page: "last_page" },
-        layout: "fitDataStretch",
-        height: "calc(100vh - 380px)",
-        movableColumns: true,
-        persistence: { columns: ["visible", "width"] },
-        persistenceID: `bot-matches-v1`,
-        columnDefaults: {
-          headerMenu: columnVisibilityMenu,
-          headerContextMenu: columnVisibilityMenu,
+      const pageSize = 100;
+
+      const gridOptions = {
+        rowModelType: "infinite",
+        cacheBlockSize: pageSize,
+        infiniteInitialRowCount: pageSize,
+        defaultColDef: {
+          sortable: false, // remote sort would need an API change
+          resizable: true,
+          minWidth: 60,
         },
-        initialSort: [{ column: "started", dir: "desc" }],
-        columns: [
+        columnDefs: [
+          { headerName: "When", field: "started", width: 160, valueFormatter: (p) => formatStarted(p.value) },
           {
-            title: "When", field: "started", width: 150, formatter: formatStarted,
-            sorter: "datetime",
-          },
-          {
-            title: "Opponent", field: "opponent_name", minWidth: 160,
-            headerFilter: "input",
-            formatter: (cell) => {
-              const r = cell.getRow().getData();
+            headerName: "Opponent", field: "opponent_name", minWidth: 200,
+            cellRenderer: (p) => {
+              const r = p.data;
+              if (!r) return "";
               if (!r.opponent_id) return "?";
-              return `<a href="/bots/${r.opponent_id}">${escapeHtml(r.opponent_name)}</a>` +
-                ` ${raceBadge(r.opponent_race)}`;
+              return `<a href="/bots/${r.opponent_id}">${escapeHtml(r.opponent_name)}</a> ` +
+                raceBadge(r.opponent_race);
             },
           },
+          { headerName: "Map", field: "map", minWidth: 150 },
+          { headerName: "Result", field: "result", width: 100, cellRenderer: cellRenderers.result },
+          { headerName: "Cause", field: "result_cause", width: 130, hide: true },
+          { headerName: "Start ELO", field: "starting_elo", width: 110, type: "numericColumn", hide: true },
+          { headerName: "End ELO", field: "resultant_elo", width: 110, type: "numericColumn" },
+          { headerName: "ΔELO", field: "elo_change", width: 100, type: "numericColumn", cellRenderer: cellRenderers.eloChange },
           {
-            title: "Map", field: "map", minWidth: 140,
-            headerFilter: "list", headerFilterParams: { values: true, clearable: true },
+            headerName: "Avg step (s)", field: "avg_step_time", width: 130, type: "numericColumn", hide: true,
+            valueFormatter: (p) => p.value == null ? "" : p.value.toFixed(4),
           },
           {
-            title: "Result", field: "result", width: 90, hozAlign: "center",
-            headerFilter: "list", headerFilterParams: { values: true, clearable: true },
-            formatter: resultCell,
-          },
-          { title: "Cause", field: "result_cause", width: 130, visible: false },
-          { title: "Start ELO", field: "starting_elo", width: 100, hozAlign: "right", sorter: "number", visible: false },
-          { title: "End ELO", field: "resultant_elo", width: 100, hozAlign: "right", sorter: "number" },
-          {
-            title: "ΔELO", field: "elo_change", width: 90, hozAlign: "right", sorter: "number",
-            formatter: eloChangeCell,
-          },
-          {
-            title: "Avg step (s)", field: "avg_step_time", width: 120, hozAlign: "right", sorter: "number",
-            formatter: (cell) => {
-              const v = cell.getValue();
-              return v == null ? "" : v.toFixed(4);
-            },
-            visible: false,
-          },
-          {
-            title: "Match", field: "match_id", width: 90, hozAlign: "center", headerSort: false,
-            formatter: (cell) => `<a href="/matches/${cell.getValue()}">view</a>`,
+            headerName: "Match", field: "match_id", width: 100,
+            cellRenderer: (p) => p.value ? `<a href="/matches/${p.value}">view</a>` : "",
           },
         ],
-      });
+        rowHeight: 32,
+        headerHeight: 36,
+        onGridReady: (params) => {
+          params.api.setGridOption(
+            "datasource",
+            buildPaginatedDatasource(`/api/bots/${botId}/matches.json`, pageSize),
+          );
+          buildColumnTogglePanel(params.api, `bot-matches-cols-v1`, document.getElementById("matches-toolbar"));
+        },
+      };
+
+      agGrid.createGrid(document.getElementById("matches-grid"), gridOptions);
     });
   </script>
 {% endblock %}

@@ -2,64 +2,57 @@
 {% block title %}Ladder &middot; {{ competition.name if competition else 'AI Arena Recap' }}{% endblock %}
 {% block content %}
   <h1>Ladder standings</h1>
-  <p class="hint">Click any column header to sort. Hover a header and click the <strong>▼</strong> on its right (or right-click) to hide / show columns. Type in the boxes under the headers to filter.</p>
-  <div id="ladder-table" class="tabulator-host"></div>
+  <p class="hint">Click any column header to sort (Shift-click to multi-sort). Click the ☰ icon on a header for filter / pin / autosize. Use the <strong>Columns</strong> button below to show / hide columns.</p>
+  <div id="ladder-toolbar" class="grid-toolbar"></div>
+  <div id="ladder-grid" class="ag-theme-quartz-dark grid-host"></div>
 
   <script>
-    document.addEventListener("DOMContentLoaded", () => {
-      const table = new Tabulator("#ladder-table", {
-        ajaxURL: "/api/ladder.json",
-        ajaxResponse: (_url, _params, response) => response.data,
-        layout: "fitDataStretch",
-        height: "calc(100vh - 240px)",
-        pagination: false,
-        movableColumns: true,
-        persistence: { columns: ["visible", "width"] },
-        persistenceID: "ladder-v1",
-        columnDefaults: {
-          headerMenu: columnVisibilityMenu,
-          headerContextMenu: columnVisibilityMenu,
+    document.addEventListener("DOMContentLoaded", async () => {
+      const res = await fetch("/api/ladder.json");
+      const { data } = await res.json();
+
+      const gridOptions = {
+        rowData: data,
+        defaultColDef: {
+          sortable: true,
+          resizable: true,
+          filter: true,
+          floatingFilter: true,
+          minWidth: 60,
         },
-        initialSort: [
-          { column: "division", dir: "asc" },
-          { column: "elo", dir: "desc" },
-        ],
-        columns: [
-          { title: "#", field: "rank", width: 55, headerSort: false, frozen: true },
+        columnDefs: [
+          { headerName: "#", field: "rank", width: 70, pinned: "left", filter: false, floatingFilter: false },
           {
-            title: "Bot", field: "name", minWidth: 160, frozen: true,
-            headerFilter: "input",
-            formatter: (cell) => {
-              const r = cell.getRow().getData();
+            headerName: "Bot", field: "name", minWidth: 160, pinned: "left", filter: "agTextColumnFilter",
+            cellRenderer: (p) => {
+              const r = p.data;
               return `<a href="/bots/${r.bot_id}">${escapeHtml(r.name)}</a>`;
             },
           },
+          { headerName: "Race", field: "race", width: 90, cellRenderer: cellRenderers.race, filter: "agTextColumnFilter" },
+          { headerName: "Type", field: "type", width: 110 },
+          { headerName: "Div", field: "division", width: 80, type: "numericColumn" },
+          { headerName: "ELO", field: "elo", width: 90, type: "numericColumn", sort: "desc" },
+          { headerName: "Peak ELO", field: "highest_elo", width: 110, type: "numericColumn", hide: true },
+          { headerName: "Matches", field: "match_count", width: 110, type: "numericColumn" },
+          { headerName: "W", field: "win_count", width: 80, type: "numericColumn" },
+          { headerName: "L", field: "loss_count", width: 80, type: "numericColumn" },
+          { headerName: "T", field: "tie_count", width: 80, type: "numericColumn", hide: true },
+          { headerName: "Crash", field: "crash_count", width: 90, type: "numericColumn", hide: true },
           {
-            title: "Race", field: "race", width: 70, hozAlign: "center",
-            headerFilter: "list", headerFilterParams: { values: true, clearable: true },
-            formatter: (cell) => raceBadge(cell.getValue()),
-          },
-          {
-            title: "Type", field: "type", width: 100,
-            headerFilter: "list", headerFilterParams: { values: true, clearable: true },
-          },
-          { title: "Div", field: "division", width: 70, hozAlign: "right" },
-          { title: "ELO", field: "elo", width: 80, hozAlign: "right", sorter: "number" },
-          { title: "Peak", field: "highest_elo", width: 80, hozAlign: "right", sorter: "number", visible: false },
-          { title: "Matches", field: "match_count", width: 100, hozAlign: "right", sorter: "number" },
-          { title: "W", field: "win_count", width: 70, hozAlign: "right", sorter: "number" },
-          { title: "L", field: "loss_count", width: 70, hozAlign: "right", sorter: "number" },
-          { title: "T", field: "tie_count", width: 70, hozAlign: "right", sorter: "number", visible: false },
-          { title: "Crash", field: "crash_count", width: 80, hozAlign: "right", sorter: "number", visible: false },
-          {
-            title: "Win %", field: "win_perc", width: 90, hozAlign: "right", sorter: "number",
-            formatter: (cell) => {
-              const v = cell.getValue();
-              return v == null ? "" : v.toFixed(1);
-            },
+            headerName: "Win %", field: "win_perc", width: 100, type: "numericColumn",
+            valueFormatter: (p) => p.value == null ? "" : p.value.toFixed(1),
           },
         ],
-      });
+        rowHeight: 32,
+        headerHeight: 36,
+        animateRows: false,
+        onGridReady: (params) => {
+          buildColumnTogglePanel(params.api, "ladder-cols-v1", document.getElementById("ladder-toolbar"));
+        },
+      };
+
+      agGrid.createGrid(document.getElementById("ladder-grid"), gridOptions);
     });
   </script>
 {% endblock %}
