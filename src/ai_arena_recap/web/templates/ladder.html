@@ -13,6 +13,7 @@
 
       const gridOptions = {
         rowData: data,
+        domLayout: "autoHeight",
         defaultColDef: {
           sortable: true,
           resizable: true,
@@ -23,7 +24,7 @@
         columnDefs: [
           { headerName: "#", field: "rank", width: 70, pinned: "left", filter: false, floatingFilter: false },
           {
-            headerName: "Bot", field: "name", minWidth: 160, pinned: "left", filter: "agTextColumnFilter",
+            headerName: "Bot", field: "name", minWidth: 160, flex: 1, pinned: "left", filter: "agTextColumnFilter",
             cellRenderer: (p) => {
               const r = p.data;
               return `<a href="/bots/${r.bot_id}">${escapeHtml(r.name)}</a>`;

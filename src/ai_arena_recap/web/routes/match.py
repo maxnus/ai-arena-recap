@@ -27,17 +27,12 @@ def match_page(match_id: int, request: Request, session: Session = Depends(get_s
 
     map_obj = session.get(Map, match.map_id) if match.map_id else None
 
-    duration_s = None
-    if match.started and match.result_created:
-        duration_s = (match.result_created - match.started).total_seconds()
-
     return render(
         request,
         "match.html",
         match=match,
         participations=parts,
         map=map_obj,
-        duration_s=duration_s,
     )
 
 

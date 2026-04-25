@@ -21,6 +21,21 @@ function formatStarted(value) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+function formatDuration(seconds) {
+  if (seconds == null) return "";
+  const total = Math.round(seconds);
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}m ${String(s).padStart(2, "0")}s`;
+}
+
+// SC2 ladder runs at "Faster" game speed.
+const GAME_STEPS_PER_SECOND = 22.4;
+function formatGameStepsAsDuration(steps) {
+  if (steps == null) return "";
+  return formatDuration(steps / GAME_STEPS_PER_SECOND);
+}
+
 // AG Grid cell renderers (return HTML strings or DOM nodes).
 const cellRenderers = {
   link: (params) => {
@@ -36,27 +51,44 @@ const cellRenderers = {
   eloChange: (params) => {
     const v = params.value;
     if (v == null) return "";
-    const cls = v > 0 ? "up" : v < 0 ? "down" : "";
+    const cls = v > 0 ? "up" : v < 0 ? "down" : "zero";
     const sign = v > 0 ? "+" : "";
     return `<span class="${cls}">${sign}${v}</span>`;
+  },
+  resultWithEloChange: (params) => {
+    const r = params.data;
+    if (!r) return "";
+    const result = r.result;
+    const change = r.elo_change;
+    const label = result ? result.charAt(0).toUpperCase() + result.slice(1) : "?";
+    const changePart = change == null ? "" : ` (${change > 0 ? "+" : ""}${change})`;
+    const cls = result ? `result-${escapeHtml(result)}` : "";
+    return `<span class="${cls}">${escapeHtml(label)}${escapeHtml(changePart)}</span>`;
   },
   startedAt: (params) => formatStarted(params.value),
 };
 
 // Build a checkbox-style "Columns" toolbar above an AG Grid (since the
-// Columns Tool Panel is an Enterprise feature). Persists hidden columns
-// to localStorage under storageKey.
+// Columns Tool Panel is an Enterprise feature). Persists the full AG Grid
+// column state (visibility, width, order, pinning, sort) to localStorage
+// via getColumnState/applyColumnState, so user customizations survive
+// reloads.
 function buildColumnTogglePanel(api, storageKey, container) {
   container.innerHTML = "";
   container.classList.add("col-toggle-panel");
 
-  const stored = JSON.parse(localStorage.getItem(storageKey) || "{}");
-  const hiddenSet = new Set(stored.hidden || []);
+  const saved = JSON.parse(localStorage.getItem(storageKey) || "null");
+  if (saved && Array.isArray(saved)) {
+    api.applyColumnState({ state: saved, applyOrder: true });
+  }
 
-  // Apply persisted hidden state.
-  api.getColumns().forEach((col) => {
-    const id = col.getColId();
-    if (hiddenSet.has(id)) api.setColumnsVisible([id], false);
+  const saveState = () => {
+    localStorage.setItem(storageKey, JSON.stringify(api.getColumnState()));
+  };
+
+  // Persist on any column-state change (visibility, width, order, pin, sort).
+  ["columnVisible", "columnResized", "columnMoved", "columnPinned", "sortChanged"].forEach((evt) => {
+    api.addEventListener(evt, saveState);
   });
 
   const button = document.createElement("button");
@@ -66,56 +98,55 @@ function buildColumnTogglePanel(api, storageKey, container) {
 
   const popover = document.createElement("div");
   popover.className = "col-toggle-popover";
-  popover.hidden = true;
 
-  api.getColumns().forEach((col) => {
-    const def = col.getColDef();
-    if (!def.headerName) return;
-    const id = col.getColId();
+  // Build the checkbox list reflecting current visibility.
+  const refreshCheckboxes = () => {
+    popover.innerHTML = "";
+    api.getColumns().forEach((col) => {
+      const def = col.getColDef();
+      if (!def.headerName) return;
+      const id = col.getColId();
 
-    const label = document.createElement("label");
-    const cb = document.createElement("input");
-    cb.type = "checkbox";
-    cb.checked = col.isVisible();
-    cb.addEventListener("change", () => {
-      api.setColumnsVisible([id], cb.checked);
-      if (cb.checked) hiddenSet.delete(id); else hiddenSet.add(id);
-      localStorage.setItem(storageKey, JSON.stringify({ hidden: [...hiddenSet] }));
+      const label = document.createElement("label");
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = col.isVisible();
+      cb.addEventListener("change", () => {
+        api.setColumnsVisible([id], cb.checked);
+      });
+      label.appendChild(cb);
+      label.appendChild(document.createTextNode(" " + def.headerName));
+      popover.appendChild(label);
     });
-    label.appendChild(cb);
-    label.appendChild(document.createTextNode(" " + def.headerName));
-    popover.appendChild(label);
-  });
+  };
+  refreshCheckboxes();
+
+  // Keep checkboxes in sync if visibility changes via other means.
+  api.addEventListener("columnVisible", refreshCheckboxes);
 
   button.addEventListener("click", (e) => {
     e.stopPropagation();
-    popover.hidden = !popover.hidden;
+    popover.classList.toggle("open");
   });
   document.addEventListener("click", (e) => {
-    if (!container.contains(e.target)) popover.hidden = true;
+    if (!container.contains(e.target)) popover.classList.remove("open");
+  });
+
+  // "Reset" button to wipe persisted state.
+  const resetBtn = document.createElement("button");
+  resetBtn.type = "button";
+  resetBtn.className = "col-toggle-button";
+  resetBtn.textContent = "Reset";
+  resetBtn.title = "Reset columns to defaults";
+  resetBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    localStorage.removeItem(storageKey);
+    api.resetColumnState();
+    refreshCheckboxes();
   });
 
   container.appendChild(button);
+  container.appendChild(resetBtn);
   container.appendChild(popover);
 }
 
-// Server-side datasource for AG Grid Infinite Row Model, talking to our
-// page/size JSON endpoints.
-function buildPaginatedDatasource(url, pageSize) {
-  return {
-    rowCount: undefined,
-    getRows: async (params) => {
-      const page = Math.floor(params.startRow / pageSize) + 1;
-      try {
-        const res = await fetch(`${url}?page=${page}&size=${pageSize}`);
-        const json = await res.json();
-        const data = json.data || [];
-        const total = json.total != null ? json.total : params.startRow + data.length;
-        params.successCallback(data, total);
-      } catch (err) {
-        console.error("Datasource error:", err);
-        params.failCallback();
-      }
-    },
-  };
-}

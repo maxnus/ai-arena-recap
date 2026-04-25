@@ -48,7 +48,7 @@ def ladder_json(session: Session = Depends(get_session)) -> dict[str, Any]:
 def bot_matches_json(
     bot_id: int,
     page: int = Query(1, ge=1),
-    size: int = Query(50, ge=1, le=500),
+    size: int = Query(50, ge=1, le=10000),
     session: Session = Depends(get_session),
 ) -> dict[str, Any]:
     if session.get(Bot, bot_id) is None:
@@ -82,6 +82,8 @@ def bot_matches_json(
         data.append({
             "match_id": match.id,
             "started": match.started.isoformat() if match.started else None,
+            "ended": match.result_created.isoformat() if match.result_created else None,
+            "game_steps": match.result_game_steps,
             "map": mp_map.name if mp_map else None,
             "opponent_id": opp_bot.id if opp_bot else None,
             "opponent_name": opp_bot.name if opp_bot else None,

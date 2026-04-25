@@ -52,6 +52,34 @@ async def _fetch_participations(client: AiArenaClient, match_id: int) -> list[di
     return items
 
 
+async def repair_incomplete_participations(session: Session, client: AiArenaClient) -> set[int]:
+    """Aiarena fills Match.result a moment before MatchParticipation.elo_change /
+    avg_step_time / result. If our sync hits that window, the match's participations
+    stay None forever (next tick skips the match because Match.result_created is set).
+
+    This pass finds such matches across all rounds and refetches their participations.
+    """
+    incomplete_match_ids = sorted(set(session.exec(
+        select(MatchParticipation.match_id)
+        .join(Match, Match.id == MatchParticipation.match_id)
+        .where(Match.result_created.is_not(None), MatchParticipation.result.is_(None))
+    ).all()))
+    if not incomplete_match_ids:
+        return set()
+    log.info("Repairing %d matches with incomplete participations", len(incomplete_match_ids))
+
+    bot_ids: set[int] = set()
+    results = await asyncio.gather(*[_fetch_participations(client, mid) for mid in incomplete_match_ids])
+    for items in results:
+        for p in items:
+            if isinstance(p.get("bot"), int):
+                ensure_bot_stub(session, p["bot"])
+                bot_ids.add(p["bot"])
+            upsert(session, MatchParticipation, _participation_values(p))
+    session.commit()
+    return bot_ids
+
+
 async def sync_rounds_and_matches(
     session: Session,
     client: AiArenaClient,

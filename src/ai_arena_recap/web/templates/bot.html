@@ -23,28 +23,36 @@
   {% endif %}
 
   <h2>Match history</h2>
-  <p class="hint">Click any column header to sort. Click the ☰ icon on a header for filter / pin / autosize. Use the <strong>Columns</strong> button below to show / hide columns. Scroll to load more rows.</p>
+  <p class="hint">Click any column header to sort (Shift-click to multi-sort). Click the ☰ icon on a header for filter / pin / autosize. Use the <strong>Columns</strong> button below to show / hide columns.</p>
   <div id="matches-toolbar" class="grid-toolbar"></div>
   <div id="matches-grid" class="ag-theme-quartz-dark grid-host"></div>
 
   <script>
-    document.addEventListener("DOMContentLoaded", () => {
+    document.addEventListener("DOMContentLoaded", async () => {
       const botId = {{ bot.id }};
-      const pageSize = 100;
+      const res = await fetch(`/api/bots/${botId}/matches.json?page=1&size=10000`);
+      const { data } = await res.json();
 
       const gridOptions = {
-        rowModelType: "infinite",
-        cacheBlockSize: pageSize,
-        infiniteInitialRowCount: pageSize,
+        rowData: data,
+        domLayout: "autoHeight",
+        pagination: true,
+        paginationPageSize: 50,
+        paginationPageSizeSelector: [25, 50, 100, 200, 500],
         defaultColDef: {
-          sortable: false, // remote sort would need an API change
+          sortable: true,
           resizable: true,
+          filter: true,
+          floatingFilter: true,
           minWidth: 60,
         },
         columnDefs: [
-          { headerName: "When", field: "started", width: 160, valueFormatter: (p) => formatStarted(p.value) },
+          { headerName: "Match ID", field: "match_id", width: 110, type: "numericColumn", pinned: "left" },
+          { headerName: "Started", field: "started", width: 160, valueFormatter: (p) => formatStarted(p.value) },
+          { headerName: "Ended", field: "ended", width: 160, valueFormatter: (p) => formatStarted(p.value), hide: true },
+          { headerName: "Duration", field: "game_steps", width: 110, type: "numericColumn", valueFormatter: (p) => formatGameStepsAsDuration(p.value) },
           {
-            headerName: "Opponent", field: "opponent_name", minWidth: 200,
+            headerName: "Opponent", field: "opponent_name", minWidth: 200, flex: 2,
             cellRenderer: (p) => {
               const r = p.data;
               if (!r) return "";
@@ -53,28 +61,38 @@
                 raceBadge(r.opponent_race);
             },
           },
-          { headerName: "Map", field: "map", minWidth: 150 },
-          { headerName: "Result", field: "result", width: 100, cellRenderer: cellRenderers.result },
-          { headerName: "Cause", field: "result_cause", width: 130, hide: true },
-          { headerName: "Start ELO", field: "starting_elo", width: 110, type: "numericColumn", hide: true },
-          { headerName: "End ELO", field: "resultant_elo", width: 110, type: "numericColumn" },
-          { headerName: "ΔELO", field: "elo_change", width: 100, type: "numericColumn", cellRenderer: cellRenderers.eloChange },
+          { headerName: "Map", field: "map", minWidth: 150, flex: 1 },
           {
-            headerName: "Avg step (s)", field: "avg_step_time", width: 130, type: "numericColumn", hide: true,
-            valueFormatter: (p) => p.value == null ? "" : p.value.toFixed(4),
+            headerName: "Result", field: "elo_change", width: 150,
+            cellStyle: { textAlign: "center" },
+            headerClass: "ag-center-header",
+            cellRenderer: cellRenderers.resultWithEloChange,
+            filter: "agTextColumnFilter",
+            filterValueGetter: (p) => p.data && p.data.result,
           },
+          { headerName: "Cause", field: "result_cause", width: 130, hide: true },
+          { headerName: "ELO", field: "resultant_elo", width: 100, type: "numericColumn" },
           {
-            headerName: "Match", field: "match_id", width: 100,
-            cellRenderer: (p) => p.value ? `<a href="/matches/${p.value}">view</a>` : "",
+            headerName: "Avg step (ms)", field: "avg_step_time", width: 130, type: "numericColumn", hide: true,
+            valueFormatter: (p) => p.value == null ? "" : (p.value * 1000).toFixed(1),
           },
         ],
+        rowClass: "row-clickable",
+        onCellClicked: (event) => {
+          // Don't hijack clicks on actual links (e.g. the opponent name).
+          if (event.event.target.closest("a")) return;
+          const matchId = event.data && event.data.match_id;
+          if (!matchId) return;
+          const url = `/matches/${matchId}`;
+          if (event.event.ctrlKey || event.event.metaKey || event.event.button === 1) {
+            window.open(url, "_blank");
+          } else {
+            window.location.href = url;
+          }
+        },
         rowHeight: 32,
         headerHeight: 36,
         onGridReady: (params) => {
-          params.api.setGridOption(
-            "datasource",
-            buildPaginatedDatasource(`/api/bots/${botId}/matches.json`, pageSize),
-          );
           buildColumnTogglePanel(params.api, `bot-matches-cols-v1`, document.getElementById("matches-toolbar"));
         },
       };
