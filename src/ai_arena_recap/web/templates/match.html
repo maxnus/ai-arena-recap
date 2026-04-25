@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Match {{ match.id }} &middot; AI Arena Recap{% endblock %}
+{% block content %}
+  <h1>Match #{{ match.id }}</h1>
+
+  <dl class="match-meta">
+    <dt>Map</dt><dd>{{ map.name if map else (match.map_id or '?') }}</dd>
+    <dt>Started</dt><dd>{{ match.started.strftime('%Y-%m-%d %H:%M UTC') if match.started else 'not started' }}</dd>
+    <dt>Ended</dt><dd>{{ match.result_created.strftime('%Y-%m-%d %H:%M UTC') if match.result_created else 'in progress / no result' }}</dd>
+    {% if duration_s is not none %}
+      <dt>Duration</dt>
+      <dd>{{ '%dm %02ds' % ((duration_s // 60), (duration_s % 60)) }}</dd>
+    {% endif %}
+    {% if match.result_game_steps %}
+      <dt>Game steps</dt><dd>{{ match.result_game_steps }}</dd>
+    {% endif %}
+    {% if match.result_type %}
+      <dt>Result</dt><dd>{{ match.result_type }}</dd>
+    {% endif %}
+  </dl>
+
+  <h2>Participants</h2>
+  <table class="participants">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Bot</th>
+        <th>Race</th>
+        <th>Result</th>
+        <th>Cause</th>
+        <th>Start ELO</th>
+        <th>End ELO</th>
+        <th>&Delta;ELO</th>
+        <th>Avg step (s)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for mp, bot in participations %}
+        <tr>
+          <td>{{ mp.participant_number }}</td>
+          <td><a href="/bots/{{ bot.id }}">{{ bot.name }}</a></td>
+          <td class="race race-{{ bot.plays_race or 'X' }}">{{ bot.plays_race or '?' }}</td>
+          <td class="result-{{ mp.result or 'unknown' }}">{{ mp.result or '?' }}</td>
+          <td>{{ mp.result_cause or '' }}</td>
+          <td class="num">{{ mp.starting_elo if mp.starting_elo is not none else '' }}</td>
+          <td class="num">{{ mp.resultant_elo if mp.resultant_elo is not none else '' }}</td>
+          <td class="num {% if mp.elo_change and mp.elo_change > 0 %}up{% elif mp.elo_change and mp.elo_change < 0 %}down{% endif %}">
+            {%- if mp.elo_change is not none -%}{{ '%+d' % mp.elo_change }}{%- endif -%}
+          </td>
+          <td class="num">{{ '%.4f' % mp.avg_step_time if mp.avg_step_time else '' }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <p class="actions">
+    <a class="button" href="/matches/{{ match.id }}/replay">Download replay</a>
+    <a class="ext-link" href="https://aiarena.net/matches/{{ match.id }}/" target="_blank" rel="noopener">View on aiarena.net &rarr;</a>
+  </p>
+
+  <section class="placeholder">
+    <h2>Replay analysis</h2>
+    <p>Coming soon: parsed replay data &mdash; build orders, APM, supply graphs.</p>
+  </section>
+{% endblock %}

@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}{{ bot.name }} &middot; AI Arena Recap{% endblock %}
+{% block content %}
+  <h1>{{ bot.name }}</h1>
+  <dl class="bot-meta">
+    <dt>Race</dt><dd class="race race-{{ bot.plays_race or 'X' }}">{{ bot.plays_race or '?' }}</dd>
+    <dt>Type</dt><dd>{{ bot.type or '?' }}</dd>
+    {% if cp %}
+      <dt>ELO</dt><dd>{{ cp.elo if cp.elo is not none else '?' }} (peak {{ cp.highest_elo if cp.highest_elo is not none else '?' }})</dd>
+      <dt>Division</dt><dd>{{ cp.division_num if cp.division_num is not none else '?' }}</dd>
+      <dt>Record</dt><dd>{{ cp.win_count }}W &middot; {{ cp.loss_count }}L &middot; {{ cp.tie_count }}T &middot; {{ cp.crash_count }} crash &middot; {{ '%.1f' % cp.win_perc if cp.win_perc is not none else '?' }}% win</dd>
+    {% endif %}
+    {% if bot.created %}<dt>Created</dt><dd>{{ bot.created.strftime('%Y-%m-%d') }}</dd>{% endif %}
+  </dl>
+
+  <p class="ext-link"><a href="https://aiarena.net/bots/{{ bot.id }}/" target="_blank" rel="noopener">View on aiarena.net &rarr;</a></p>
+
+  {% if bot.wiki_article_content %}
+    <section class="description">
+      <h2>Description</h2>
+      <pre>{{ bot.wiki_article_content }}</pre>
+    </section>
+  {% endif %}
+
+  <h2>Match history</h2>
+  <p class="hint">Click any column header to sort. Hover a header and click the <strong>▼</strong> on its right (or right-click) to hide / show columns. Type in the boxes under the headers to filter.</p>
+  <div id="matches-table" class="tabulator-host"></div>
+
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      const botId = {{ bot.id }};
+      new Tabulator("#matches-table", {
+        ajaxURL: `/api/bots/${botId}/matches.json`,
+        pagination: true,
+        paginationMode: "remote",
+        paginationSize: 50,
+        paginationSizeSelector: [25, 50, 100, 200],
+        dataSendParams: { page: "page", size: "size" },
+        dataReceiveParams: { last_page: "last_page" },
+        layout: "fitDataStretch",
+        height: "calc(100vh - 380px)",
+        movableColumns: true,
+        persistence: { columns: ["visible", "width"] },
+        persistenceID: `bot-matches-v1`,
+        columnDefaults: {
+          headerMenu: columnVisibilityMenu,
+          headerContextMenu: columnVisibilityMenu,
+        },
+        initialSort: [{ column: "started", dir: "desc" }],
+        columns: [
+          {
+            title: "When", field: "started", width: 150, formatter: formatStarted,
+            sorter: "datetime",
+          },
+          {
+            title: "Opponent", field: "opponent_name", minWidth: 160,
+            headerFilter: "input",
+            formatter: (cell) => {
+              const r = cell.getRow().getData();
+              if (!r.opponent_id) return "?";
+              return `<a href="/bots/${r.opponent_id}">${escapeHtml(r.opponent_name)}</a>` +
+                ` ${raceBadge(r.opponent_race)}`;
+            },
+          },
+          {
+            title: "Map", field: "map", minWidth: 140,
+            headerFilter: "list", headerFilterParams: { values: true, clearable: true },
+          },
+          {
+            title: "Result", field: "result", width: 90, hozAlign: "center",
+            headerFilter: "list", headerFilterParams: { values: true, clearable: true },
+            formatter: resultCell,
+          },
+          { title: "Cause", field: "result_cause", width: 130, visible: false },
+          { title: "Start ELO", field: "starting_elo", width: 100, hozAlign: "right", sorter: "number", visible: false },
+          { title: "End ELO", field: "resultant_elo", width: 100, hozAlign: "right", sorter: "number" },
+          {
+            title: "ΔELO", field: "elo_change", width: 90, hozAlign: "right", sorter: "number",
+            formatter: eloChangeCell,
+          },
+          {
+            title: "Avg step (s)", field: "avg_step_time", width: 120, hozAlign: "right", sorter: "number",
+            formatter: (cell) => {
+              const v = cell.getValue();
+              return v == null ? "" : v.toFixed(4);
+            },
+            visible: false,
+          },
+          {
+            title: "Match", field: "match_id", width: 90, hozAlign: "center", headerSort: false,
+            formatter: (cell) => `<a href="/matches/${cell.getValue()}">view</a>`,
+          },
+        ],
+      });
+    });
+  </script>
+{% endblock %}

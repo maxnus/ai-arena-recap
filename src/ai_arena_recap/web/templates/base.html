@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}AI Arena Recap{% endblock %}</title>
+  <link href="https://unpkg.com/tabulator-tables@6.3.0/dist/css/tabulator.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="{{ request.url_for('static', path='styles.css') }}">
+  <script src="https://unpkg.com/tabulator-tables@6.3.0/dist/js/tabulator.min.js"></script>
+  <script src="{{ request.url_for('static', path='app.js') }}"></script>
+</head>
+<body>
+  <header>
+    <nav>
+      <a class="brand" href="/">AI Arena Recap</a>
+      {% if competition %}
+        <span class="comp-name">{{ competition.name }}</span>
+      {% endif %}
+    </nav>
+  </header>
+
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer>
+    {% if last_synced_age_s is not none %}
+      Data synced {{ last_synced_age_s | age }}
+      ({{ last_synced_dt.strftime('%Y-%m-%d %H:%M UTC') }}).
+    {% else %}
+      No data synced yet.
+    {% endif %}
+    &middot;
+    <a href="/healthz">health</a>
+    &middot;
+    Source: <a href="https://aiarena.net/" target="_blank" rel="noopener">aiarena.net</a>
+  </footer>
+</body>
+</html>
