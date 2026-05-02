@@ -212,6 +212,29 @@ def bot_rank_history(session: Session, bot_id: int) -> list[dict]:
     ]
 
 
+def bot_avg_match_stats(session: Session, bot_id: int) -> dict:
+    """Average game duration (seconds) and average per-step time (seconds)
+    across the bot's matches in the current competition. Only counts matches
+    with a recorded result (win/loss/tie) to exclude errors and crashes that
+    skew the duration / step time."""
+    row = session.exec(
+        select(
+            func.avg(Match.result_game_steps),
+            func.avg(MatchParticipation.avg_step_time),
+        )
+        .join(Match, Match.id == MatchParticipation.match_id)
+        .join(Round, Round.id == Match.round_id)
+        .where(MatchParticipation.bot_id == bot_id)
+        .where(Round.competition_id == settings.competition_id)
+        .where(MatchParticipation.result.in_(_RESULTS))
+    ).one()
+    avg_steps, avg_step_time = row
+    return {
+        "avg_duration_s": (float(avg_steps) / 22.4) if avg_steps is not None else None,
+        "avg_step_time_s": float(avg_step_time) if avg_step_time is not None else None,
+    }
+
+
 def round_position_for_timestamp(session: Session, ts) -> float | None:
     """Map a datetime to the bot detail chart's x-axis (round number).
     Linearly interpolates between consecutive rounds' `started` times so the

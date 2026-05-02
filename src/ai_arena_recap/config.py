@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     db_path: Path = Field(default=PROJECT_ROOT / "data" / "recap.sqlite")
     sync_interval_seconds: int = 300
     request_concurrency: int = 8
-    bot_refresh_seconds: int = 24 * 3600
+    bot_refresh_seconds: int = 3600
 
     replay_cache_enabled: bool = False
     replay_dir: Path = Field(default=PROJECT_ROOT / "data" / "replays")

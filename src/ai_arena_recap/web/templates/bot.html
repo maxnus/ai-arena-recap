@@ -27,6 +27,8 @@
         <dt>Ties</dt><dd>{{ cp.tie_count }}</dd>
         <dt>Crashes</dt><dd>{{ cp.crash_count }}</dd>
         <dt>Win rate</dt><dd>{{ '%.1f' % cp.win_perc if cp.win_perc is not none else '?' }}%</dd>
+        <dt>Avg duration</dt><dd>{% if match_stats.avg_duration_s is not none %}{{ '%d:%02d' % (match_stats.avg_duration_s // 60, match_stats.avg_duration_s % 60) }}{% else %}<span class="muted">–</span>{% endif %}</dd>
+        <dt>Avg step</dt><dd>{% if match_stats.avg_step_time_s is not none %}{{ '%.1f' % (match_stats.avg_step_time_s * 1000) }} ms{% else %}<span class="muted">–</span>{% endif %}</dd>
         {% for r in ['T', 'Z', 'P', 'R'] %}
           {% set wr = wr_by_race.get(r) %}
           <dt>vs {{ race_icon(r) }}</dt>
@@ -36,8 +38,30 @@
       {% endif %}
     </div>
     <div class="elo-chart-wrap">
-      <button id="elo-chart-toggle" type="button" class="elo-chart-toggle" hidden
-              aria-pressed="false">Split by race</button>
+      <div class="elo-chart-toolbar">
+        <button id="elo-chart-toggle" type="button" class="elo-chart-toggle" hidden
+                aria-pressed="false">Split by race</button>
+        <div class="elo-chart-legend">
+          <span class="elo-legend-item elo-legend-overall">
+            <span class="elo-legend-swatch" style="background:#58a6ff"></span>ELO
+          </span>
+          <span class="elo-legend-item elo-legend-by-race">
+            ELO vs <img class="race-icon" src="/static/terran.svg" alt="Terran">
+          </span>
+          <span class="elo-legend-item elo-legend-by-race">
+            ELO vs <img class="race-icon" src="/static/zerg.svg" alt="Zerg">
+          </span>
+          <span class="elo-legend-item elo-legend-by-race">
+            ELO vs <img class="race-icon" src="/static/protoss.svg" alt="Protoss">
+          </span>
+          <span class="elo-legend-item elo-legend-by-race">
+            ELO vs <img class="race-icon" src="/static/random.svg" alt="Random">
+          </span>
+          <span class="elo-legend-item">
+            <span class="elo-legend-swatch" style="background:#f85149"></span>Rank
+          </span>
+        </div>
+      </div>
       <div id="elo-chart" class="elo-chart"></div>
     </div>
   </div>
@@ -257,7 +281,7 @@
           if (raceEloByRace[r.race]) raceEloByRace[r.race].push(r);
         }
         // Same colors as race-icons in the rest of the UI.
-        const RACE_COLORS = { T: "#4d9bd1", Z: "#b06bd1", P: "#d1c34d", R: "#999999" };
+        const RACE_COLORS = { T: "#4d9bd1", Z: "#b06bd1", P: "#d1c34d", R: "#86c232" };
         // Race traces start hidden — the "Overall / By race" toggle below
         // controls them as a group. `false` means truly hidden (no legend
         // entry); the toggle uses restyle to flip them to true.
@@ -271,7 +295,7 @@
             name: `vs ${RACE_NAMES[race]}`,
             visible: false,
             showlegend: pts.length > 0,
-            line: { color: RACE_COLORS[race], width: 1.5, dash: "dot" },
+            line: { color: RACE_COLORS[race], width: 2 },
             hovertemplate: `Round %{x}<br>ELO vs ${race} %{y:.0f}<extra></extra>`,
           };
         });
@@ -286,21 +310,19 @@
               x: rounds,
               y: eloByRound,
               type: "scatter",
-              mode: "lines+markers",
+              mode: "lines",
               name: "ELO",
               line: { color: "#58a6ff", width: 2 },
-              marker: { size: 5, color: "#58a6ff" },
               hovertemplate: "Round %{x}<br>ELO %{y}<extra></extra>",
             },
             {
               x: rankRounds,
               y: rankValues,
               type: "scatter",
-              mode: "lines+markers",
+              mode: "lines",
               name: "Rank",
               yaxis: "y2",
-              line: { color: "#d29922", width: 2, dash: "dot" },
-              marker: { size: 4, color: "#d29922" },
+              line: { color: "#f85149", width: 2 },
               hovertemplate: "Round %{x}<br>Rank %{y}<extra></extra>",
             },
             ...RACE_TRACES,
@@ -310,9 +332,12 @@
             paper_bgcolor: "#161b22",
             plot_bgcolor: "#161b22",
             font: { color: "#e6edf3", size: 11 },
+            // Shared x-axis between the ELO panel (top) and the Rank panel
+            // (bottom). Anchoring xaxis to y2 puts the tick labels at the
+            // bottom of the rank panel; both panels still get vertical
+            // round-number gridlines.
             xaxis: (() => {
               const last = rounds[rounds.length - 1];
-              // Tick at round 1, then at every multiple of dtick (10, 20, …).
               const tickvals = [1];
               for (let v = dtick; v <= last; v += dtick) {
                 if (v !== 1) tickvals.push(v);
@@ -324,36 +349,43 @@
                 tickmode: "array",
                 tickvals,
                 range: [Math.max(0.5, rounds[0] - 0.5), last + 0.5],
+                anchor: "y2",
               };
             })(),
-            yaxis: { title: "ELO", gridcolor: "#30363d", zeroline: false },
+            yaxis: {
+              title: "ELO",
+              gridcolor: "#30363d",
+              zeroline: false,
+              domain: [0.40, 1.0],
+              anchor: "x",
+            },
             yaxis2: {
               title: "Rank",
-              overlaying: "y",
-              side: "right",
-              showgrid: false,  // y1 already draws horizontal gridlines
+              gridcolor: "#30363d",
               zeroline: false,
               autorange: "reversed", // rank 1 at the top
               tick0: 1,
               dtick: maxRank <= 10 ? 1 : maxRank <= 30 ? 5 : 10,
               range: [Math.max(maxRank, 1) + 0.5, 0.5],
+              domain: [0.0, 0.30],
+              anchor: "x",
             },
-            // x offset leaves room for the "Split by race" toggle button,
-            // which is absolutely positioned at top-left of the chart wrap.
-            legend: { orientation: "h", x: 0.17, y: 1.12 },
+            // Plotly's legend is hidden — the chart wrap above renders a
+            // custom HTML legend with the actual race icons.
+            showlegend: false,
             {% if update_round is not none %}
             shapes: [{
               type: "line",
               x0: {{ update_round }}, x1: {{ update_round }},
               yref: "paper", y0: 0, y1: 1,
-              line: { color: "#56d364", width: 1, dash: "dash" },
+              line: { color: "#d29922", width: 1, dash: "dash" },
             }],
             annotations: [{
               x: {{ update_round }}, xref: "x",
               y: 1.0, yref: "paper", yanchor: "bottom",
               text: "Last updated",
               showarrow: false,
-              font: { size: 10, color: "#56d364" },
+              font: { size: 10, color: "#d29922" },
             }],
             {% endif %}
           },
