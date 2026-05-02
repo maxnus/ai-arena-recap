@@ -235,6 +235,19 @@ def bot_avg_match_stats(session: Session, bot_id: int) -> dict:
     }
 
 
+def competition_round_starts(session: Session) -> dict[int, str]:
+    """Map round_number -> ISO date string ("YYYY-MM-DD") for every round in
+    the current competition that has a recorded start time. Used to label the
+    bot detail chart's x-axis with dates instead of bare round numbers."""
+    rows = session.exec(
+        select(Round.number, Round.started)
+        .where(Round.competition_id == settings.competition_id)
+        .where(Round.started.is_not(None))  # type: ignore[union-attr]
+        .order_by(Round.number)
+    ).all()
+    return {int(n): s.strftime("%Y-%m-%d") for n, s in rows}
+
+
 def round_position_for_timestamp(session: Session, ts) -> float | None:
     """Map a datetime to the bot detail chart's x-axis (round number).
     Linearly interpolates between consecutive rounds' `started` times so the

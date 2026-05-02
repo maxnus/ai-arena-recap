@@ -292,6 +292,19 @@
         for (const r of raceElo) {
           if (raceEloByRace[r.race]) raceEloByRace[r.race].push(r);
         }
+        // round_number -> "YYYY-MM-DD" for the competition's rounds.
+        const ROUND_DATES = {{ round_starts|tojson }};
+        const fmtRoundDate = (n) => {
+          const iso = ROUND_DATES[n];
+          if (!iso) return String(n);
+          const d = new Date(iso + "T00:00:00Z");
+          return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+        };
+        const fmtRoundHover = (n) => {
+          const iso = ROUND_DATES[n];
+          return iso ? `${iso} (round ${n})` : `Round ${n}`;
+        };
+
         // Same colors as race-icons in the rest of the UI.
         const RACE_COLORS = { T: "#4d9bd1", Z: "#b06bd1", P: "#d1c34d", R: "#86c232" };
         // Race traces start hidden — the "Overall / By race" toggle below
@@ -302,13 +315,14 @@
           return {
             x: pts.map((p) => p.round_number),
             y: pts.map((p) => p.rating),
+            customdata: pts.map((p) => fmtRoundHover(p.round_number)),
             type: "scatter",
             mode: "lines",
             name: `vs ${RACE_NAMES[race]}`,
             visible: false,
             showlegend: pts.length > 0,
             line: { color: RACE_COLORS[race], width: 2 },
-            hovertemplate: `Round %{x}<br>ELO vs ${race} %{y:.0f}<extra></extra>`,
+            hovertemplate: `%{customdata}<br>ELO vs ${race} %{y:.0f}<extra></extra>`,
           };
         });
         // Visibility presets for the toggle. Trace order is [ELO, Rank, T, Z, P, R].
@@ -321,26 +335,28 @@
             {
               x: rounds,
               y: eloByRound,
+              customdata: rounds.map(fmtRoundHover),
               type: "scatter",
               mode: "lines",
               name: "ELO",
               line: { color: "#58a6ff", width: 2 },
-              hovertemplate: "Round %{x}<br>ELO %{y}<extra></extra>",
+              hovertemplate: "%{customdata}<br>ELO %{y}<extra></extra>",
             },
             {
               x: rankRounds,
               y: rankValues,
+              customdata: rankRounds.map(fmtRoundHover),
               type: "scatter",
               mode: "lines",
               name: "Rank",
               yaxis: "y2",
               line: { color: "#f85149", width: 2 },
-              hovertemplate: "Round %{x}<br>Rank %{y}<extra></extra>",
+              hovertemplate: "%{customdata}<br>Rank %{y}<extra></extra>",
             },
             ...RACE_TRACES,
           ],
           {
-            margin: { t: 30, r: 50, b: 35, l: 45 },
+            margin: { t: 30, r: 30, b: 35, l: 65 },
             paper_bgcolor: "#161b22",
             plot_bgcolor: "#161b22",
             font: { color: "#e6edf3", size: 11 },
@@ -355,26 +371,28 @@
                 if (v !== 1) tickvals.push(v);
               }
               return {
-                title: "Round",
                 gridcolor: "#30363d",
                 zeroline: false,
                 tickmode: "array",
                 tickvals,
+                ticktext: tickvals.map(fmtRoundDate),
                 range: [Math.max(0.5, rounds[0] - 0.5), last + 0.5],
                 anchor: "y2",
               };
             })(),
             yaxis: {
-              title: "ELO",
+              title: { text: "ELO", standoff: 12 },
               gridcolor: "#30363d",
               zeroline: false,
+              ticklabelstandoff: 4,
               domain: [0.40, 1.0],
               anchor: "x",
             },
             yaxis2: {
-              title: "Rank",
+              title: { text: "Rank", standoff: 12 },
               gridcolor: "#30363d",
               zeroline: false,
+              ticklabelstandoff: 4,
               autorange: "reversed", // rank 1 at the top
               tick0: 1,
               dtick: maxRank <= 10 ? 1 : maxRank <= 30 ? 5 : 10,
