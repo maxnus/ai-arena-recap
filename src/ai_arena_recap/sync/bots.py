@@ -30,6 +30,7 @@ def _bot_values(data: dict) -> dict:
         "game_display_id": data.get("game_display_id"),
         "wiki_article_content": data.get("wiki_article_content"),
         "bot_data_enabled": data.get("bot_data_enabled"),
+        "bot_zip_updated": parse_dt(data.get("bot_zip_updated")),
         "last_synced": utcnow(),
     }
 

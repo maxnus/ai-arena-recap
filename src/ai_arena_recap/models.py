@@ -24,6 +24,7 @@ class Bot(SQLModel, table=True):
     game_display_id: str | None = None
     wiki_article_content: str | None = None
     bot_data_enabled: bool | None = None
+    bot_zip_updated: datetime | None = None
     last_synced: datetime
 
 

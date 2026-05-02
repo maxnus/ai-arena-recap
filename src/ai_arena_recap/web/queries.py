@@ -17,6 +17,9 @@ from ai_arena_recap.sync.common import utcnow
 MATCHUP_WINDOW_DAYS = 60
 MATCHUP_MIN_GAMES = 10
 
+# K-factor for the per-race ELO simulation.
+RACE_ELO_K = 16
+
 _RESULTS = ("win", "loss", "tie")
 
 
@@ -207,3 +210,101 @@ def bot_rank_history(session: Session, bot_id: int) -> list[dict]:
         {"round_number": int(r[0]), "rank": int(r[1]), "mean_elo": float(r[2])}
         for r in rows
     ]
+
+
+def round_position_for_timestamp(session: Session, ts) -> float | None:
+    """Map a datetime to the bot detail chart's x-axis (round number).
+    Linearly interpolates between consecutive rounds' `started` times so the
+    marker lands at the right place even mid-round. Returns None if the
+    timestamp can't be placed (no rounds with `started` set, or ts predates
+    the very first round in the competition)."""
+    from datetime import timezone
+
+    if ts is None:
+        return None
+    rows = session.exec(
+        select(Round.number, Round.started)
+        .where(Round.competition_id == settings.competition_id)
+        .where(Round.started.is_not(None))  # type: ignore[union-attr]
+        .order_by(Round.started)
+    ).all()
+    if not rows:
+        return None
+
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+
+    def aware(t):
+        return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+
+    starts = [(int(n), aware(s)) for n, s in rows]
+    if ts < starts[0][1]:
+        return None  # bot was last updated before the competition started
+
+    for (n0, t0), (n1, t1) in zip(starts, starts[1:]):
+        if t0 <= ts < t1:
+            span = (t1 - t0).total_seconds()
+            if span <= 0:
+                return float(n0)
+            frac = (ts - t0).total_seconds() / span
+            return n0 + frac * (n1 - n0)
+
+    # Past the last round's start — pin to the last round (incomplete or just done).
+    return float(starts[-1][0])
+
+
+def bot_race_elo_history(session: Session, bot_id: int) -> list[dict]:
+    """Per-round per-opponent-race ELO, computed by walking the bot's matches
+    chronologically and applying the standard ELO update with K=RACE_ELO_K
+    against the opponent's overall (race-agnostic) rating at match time.
+
+    Per-race ratings start at the bot's pre-competition ELO (`starting_elo`
+    on its first match in the competition) so the four traces align with the
+    overall ELO trace at round 1. A snapshot of all "activated" race ratings
+    is emitted at the end of each round the bot played in."""
+    rows = session.exec(text("""
+        SELECT r.number AS round_number, mp.result, opp_bot.plays_race AS race,
+               opp_mp.starting_elo AS opp_elo, mp.starting_elo AS bot_starting_elo
+        FROM match_participation mp
+        JOIN match m ON m.id = mp.match_id
+        JOIN round r ON r.id = m.round_id
+        JOIN match_participation opp_mp
+          ON opp_mp.match_id = m.id AND opp_mp.bot_id != mp.bot_id
+        JOIN bot opp_bot ON opp_bot.id = opp_mp.bot_id
+        WHERE mp.bot_id = :bot_id
+          AND r.competition_id = :competition_id
+          AND mp.result IN ('win', 'loss', 'tie')
+          AND opp_mp.starting_elo IS NOT NULL
+          AND opp_bot.plays_race IS NOT NULL
+        ORDER BY r.number, m.started, m.id
+    """), params={"competition_id": settings.competition_id, "bot_id": bot_id}).all()
+
+    if not rows:
+        return []
+
+    initial = next((r[4] for r in rows if r[4] is not None), 1600.0)
+    ratings = {race: float(initial) for race in ("T", "Z", "P", "R")}
+    seen_races: set[str] = set()
+    out: list[dict] = []
+    last_round: int | None = None
+
+    def snapshot(round_number: int) -> None:
+        for race in seen_races:
+            out.append({
+                "round_number": int(round_number),
+                "race": race,
+                "rating": round(ratings[race], 1),
+            })
+
+    for round_number, result, race, opp_elo, _bot_se in rows:
+        if last_round is not None and round_number != last_round:
+            snapshot(last_round)
+        score = 1.0 if result == "win" else 0.5 if result == "tie" else 0.0
+        expected = 1.0 / (1.0 + 10 ** ((float(opp_elo) - ratings[race]) / 400))
+        ratings[race] += RACE_ELO_K * (score - expected)
+        seen_races.add(race)
+        last_round = int(round_number)
+
+    if last_round is not None:
+        snapshot(last_round)
+    return out

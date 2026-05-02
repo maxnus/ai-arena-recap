@@ -138,12 +138,39 @@ dl.bot-meta-col-numeric dd {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+.bot-header .elo-chart-wrap {
+  position: relative;
+  height: 100%;
+}
 .bot-header .elo-chart {
   height: 100%;
   min-height: 260px;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 4px;
+}
+.elo-chart-toggle {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 2;
+  background: var(--panel);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+.elo-chart-toggle:hover {
+  color: #e6edf3;
+}
+.elo-chart-toggle[aria-pressed="true"] {
+  background: #30363d;
+  color: #e6edf3;
+  border-color: #58a6ff;
 }
 dt { color: var(--muted); }
 dd { margin: 0; }

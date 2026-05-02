@@ -46,6 +46,9 @@ def _apply_lightweight_migrations() -> None:
     if "bot_data_enabled" not in columns:
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE bot ADD COLUMN bot_data_enabled BOOLEAN"))
+    if "bot_zip_updated" not in columns:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE bot ADD COLUMN bot_zip_updated DATETIME"))
 
 
 @contextmanager

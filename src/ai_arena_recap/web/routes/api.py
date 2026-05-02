@@ -12,6 +12,7 @@ from ai_arena_recap.web.deps import get_session
 from ai_arena_recap.web.queries import (
     MATCHUP_MIN_GAMES,
     MATCHUP_WINDOW_DAYS,
+    bot_race_elo_history,
     bot_rank_history,
     recent_matchups,
 )
@@ -188,3 +189,12 @@ def bot_rank_history_json(bot_id: int, session: Session = Depends(get_session)) 
     if session.get(Bot, bot_id) is None:
         raise HTTPException(status_code=404, detail="Bot not found")
     return {"data": bot_rank_history(session, bot_id)}
+
+
+@router.get("/bots/{bot_id}/race-elo-history.json")
+def bot_race_elo_history_json(bot_id: int, session: Session = Depends(get_session)) -> dict[str, Any]:
+    """Per-round per-opponent-race ELO, simulated forward with K=16 against
+    the opponent's overall ELO."""
+    if session.get(Bot, bot_id) is None:
+        raise HTTPException(status_code=404, detail="Bot not found")
+    return {"data": bot_race_elo_history(session, bot_id)}
