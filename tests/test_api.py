@@ -8,7 +8,6 @@ from fastapi.testclient import TestClient
 from ai_arena_recap.config import settings
 from ai_arena_recap.models import Bot, Competition, CompetitionParticipation, Map, Match, MatchParticipation, Round
 from ai_arena_recap.sync.common import upsert
-from ai_arena_recap.web.app import create_app
 
 
 def _now():

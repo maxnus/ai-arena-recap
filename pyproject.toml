@@ -35,3 +35,7 @@ dev = [
 [tool.ruff]
 line-length = 120
 target-version = "py311"
+
+[tool.ruff.lint]
+# `l` is used as the standard W/L/T loss-count alias throughout the codebase.
+ignore = ["E741"]
