@@ -12,7 +12,7 @@ from ai_arena_recap.web.deps import get_session, render
 
 router = APIRouter()
 
-MATCHUP_WINDOW_DAYS = 30
+MATCHUP_WINDOW_DAYS = 60
 MATCHUP_MIN_GAMES = 10
 
 
@@ -32,6 +32,7 @@ def _recent_matchups(session: Session, bot_id: int) -> list[dict]:
     ties = func.coalesce(func.sum(case((MatchParticipation.result == "tie", 1), else_=0)), 0)
     avg_change = func.avg(MatchParticipation.elo_change)
     avg_steps = func.avg(Match.result_game_steps)
+    var_steps = func.avg(Match.result_game_steps * Match.result_game_steps) - func.avg(Match.result_game_steps) * func.avg(Match.result_game_steps)
     # Split window into halves for a recency trend.
     recent_matches = func.coalesce(func.sum(case((is_recent, 1), else_=0)), 0)
     recent_wins = func.coalesce(
@@ -47,6 +48,7 @@ def _recent_matchups(session: Session, bot_id: int) -> list[dict]:
             ties.label("ties"),
             avg_change.label("avg_change"),
             avg_steps.label("avg_steps"),
+            var_steps.label("var_steps"),
             recent_matches.label("recent_matches"),
             recent_wins.label("recent_wins"),
         )
@@ -63,7 +65,7 @@ def _recent_matchups(session: Session, bot_id: int) -> list[dict]:
 
     matchups = []
     for r in rows:
-        opp_id, opp_name, opp_race, m, w, l, t, ec, st, rm, rw = r
+        opp_id, opp_name, opp_race, m, w, l, t, ec, st, vs, rm, rw = r
         recent_n, earlier_n = rm, m - rm
         # Trend: pp difference between latter-half and earlier-half win rates.
         # Undefined if either half has zero games.
@@ -84,6 +86,7 @@ def _recent_matchups(session: Session, bot_id: int) -> list[dict]:
             "win_rate": ((w + t / 2) / m * 100) if m else 0.0,
             "avg_change": float(ec) if ec is not None else None,
             "avg_duration_s": (float(st) / 22.4) if st is not None else None,
+            "std_duration_s": (float(vs) ** 0.5 / 22.4) if vs is not None and vs > 0 else None,
             "trend_pp": trend_pp,
         })
     if not matchups:
@@ -92,7 +95,7 @@ def _recent_matchups(session: Session, bot_id: int) -> list[dict]:
     opp_ids = [m["opp_id"] for m in matchups]
     Opp2 = aliased(MatchParticipation)
     timeline_rows = session.exec(
-        select(Opp2.bot_id, MatchParticipation.result, Match.started)
+        select(Opp2.bot_id, MatchParticipation.result, Match.started, MatchParticipation.elo_change)
         .join(Match, Match.id == MatchParticipation.match_id)
         .join(Opp2, (Opp2.match_id == Match.id) & (Opp2.bot_id != bot_id))
         .where(MatchParticipation.bot_id == bot_id)
@@ -106,11 +109,11 @@ def _recent_matchups(session: Session, bot_id: int) -> list[dict]:
     abbrev = {"win": "w", "loss": "l", "tie": "t"}
     window_seconds = MATCHUP_WINDOW_DAYS * 86400
     per_opp: dict[int, list] = defaultdict(list)
-    for opp_id, result, started in timeline_rows:
+    for opp_id, result, started, elo_chg in timeline_rows:
         started_aware = started if started.tzinfo else started.replace(tzinfo=timezone.utc)
         age = (utcnow() - started_aware).total_seconds()
         t = round(1 - age / window_seconds, 4)
-        per_opp[opp_id].append([t, abbrev.get(result, result)])
+        per_opp[opp_id].append([t, abbrev.get(result, result), elo_chg])
 
     for m in matchups:
         m["history"] = per_opp.get(m["opp_id"], [])

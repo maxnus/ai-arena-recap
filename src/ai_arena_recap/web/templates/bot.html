@@ -93,16 +93,16 @@
               },
             },
             {
-              headerName: "Results",
+              headerName: "History",
               field: "history",
-              width: 140,
+              width: 200,
               sortable: false,
               filter: false,
-              headerTooltip: "Daily win/tie/loss breakdown over the last 30 days (green=win, yellow=tie, red=loss)",
+              headerTooltip: "3-day win/tie/loss breakdown over the last 60 days (green=win, yellow=tie, red=loss)",
               cellRenderer: (p) => {
                 const hist = p.value;
                 if (!hist || !hist.length) return "";
-                const W = 120, H = 20, nBins = 10;
+                const W = 180, H = 20, nBins = 20;
                 const bins = {};
                 for (const [t, r] of hist) {
                   const d = Math.min(nBins - 1, Math.floor(t * nBins));
@@ -118,9 +118,9 @@
                   const total = c.w + c.t + c.l;
                   const x = d * barW;
                   const wH = c.w / total * H, tH = c.t / total * H, lH = c.l / total * H;
-                  if (c.w) bars += `<rect x="${x}" y="0" width="${barW - 0.5}" height="${wH}" fill="var(--green)"/>`;
-                  if (c.t) bars += `<rect x="${x}" y="${wH}" width="${barW - 0.5}" height="${tH}" fill="var(--yellow)"/>`;
-                  if (c.l) bars += `<rect x="${x}" y="${wH + tH}" width="${barW - 0.5}" height="${lH}" fill="var(--red)"/>`;
+                  if (c.l) bars += `<rect x="${x}" y="0" width="${barW - 0.5}" height="${lH}" fill="var(--red)"/>`;
+                  if (c.t) bars += `<rect x="${x}" y="${lH}" width="${barW - 0.5}" height="${tH}" fill="var(--yellow)"/>`;
+                  if (c.w) bars += `<rect x="${x}" y="${lH + tH}" width="${barW - 0.5}" height="${wH}" fill="var(--green)"/>`;
                 }
                 return `<svg width="${W}" height="${H}" style="vertical-align:middle">` +
                   `<rect width="${W}" height="${H}" fill="none" stroke="rgba(255,255,255,0.25)" rx="2"/>` +
@@ -128,27 +128,12 @@
               },
             },
             {
-              headerName: "Trend",
-              field: "trend_pp",
-              width: 110,
-              type: "numericColumn",
-              headerTooltip: "Win-rate change between the first and second halves of the window (percentage points)",
-              cellRenderer: (p) => {
-                const v = p.value;
-                if (v == null) return `<span class="muted">–</span>`;
-                const arrow = v > 1 ? "▲" : v < -1 ? "▼" : "▬";
-                const cls = v > 1 ? "up" : v < -1 ? "down" : "muted";
-                const sign = v > 0 ? "+" : "";
-                return `<span class="${cls}">${arrow} ${sign}${Math.round(v)} pp</span>`;
-              },
-            },
-            {
               headerName: "Avg ΔELO", field: "avg_change", width: 110, type: "numericColumn",
               headerTooltip: "Average ELO change per game against this opponent",
               valueFormatter: (p) => {
                 if (p.value == null) return "";
-                const rounded = Math.round(p.value * 100) / 100;  // ≤ 2 decimals, no trailing zeros
-                return (rounded > 0 ? "+" : "") + rounded;
+                const v = p.value;
+                return (v > 0 ? "+" : "") + v.toFixed(2);
               },
               cellClassRules: {
                 "up":   (p) => p.value != null && p.value > 0,
@@ -156,9 +141,42 @@
               },
             },
             {
+              headerName: "ΔELO Trend",
+              field: "history",
+              width: 120,
+              type: "numericColumn",
+              headerTooltip: "Linear regression slope of ELO change per game over time, per 30 days",
+              valueGetter: (p) => {
+                const hist = p.data && p.data.history;
+                if (!hist || hist.length < 3) return null;
+                let sx = 0, sy = 0, sxy = 0, sxx = 0, n = 0;
+                for (const [t, , e] of hist) {
+                  if (e == null) continue;
+                  sx += t; sy += e; sxy += t * e; sxx += t * t; n++;
+                }
+                if (n < 3) return null;
+                const denom = n * sxx - sx * sx;
+                if (denom === 0) return null;
+                return (n * sxy - sx * sy) / denom * (30 / matchupsBody.window_days);
+              },
+              cellRenderer: (p) => {
+                const v = p.value;
+                if (v == null) return `<span class="muted">–</span>`;
+                const arrow = v > 0.5 ? "▲" : v < -0.5 ? "▼" : "▬";
+                const cls = v > 0.5 ? "up" : v < -0.5 ? "down" : "muted";
+                const sign = v > 0 ? "+" : "";
+                return `<span class="${cls}">${arrow} ${sign}${v.toFixed(1)}</span>`;
+              },
+            },
+            {
               headerName: "Avg duration", field: "avg_duration_s", width: 130, type: "numericColumn",
               headerTooltip: "Average game duration against this opponent",
               valueFormatter: (p) => formatDuration(p.value),
+            },
+            {
+              headerName: "Duration σ", field: "std_duration_s", width: 120, type: "numericColumn",
+              headerTooltip: "Standard deviation of game duration against this opponent",
+              valueFormatter: (p) => p.value != null ? "±" + formatDuration(p.value) : "",
             },
           ],
           rowClass: "row-clickable",
