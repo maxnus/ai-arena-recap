@@ -14,7 +14,7 @@ WEB_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(WEB_DIR / "templates"))
 
 
-def _humanize_age(seconds: float) -> str:
+def humanize_age(seconds: float) -> str:
     if seconds < 60:
         return f"{int(seconds)}s ago"
     if seconds < 3600:
@@ -24,7 +24,7 @@ def _humanize_age(seconds: float) -> str:
     return f"{int(seconds // 86400)}d ago"
 
 
-templates.env.filters["age"] = _humanize_age
+templates.env.filters["age"] = humanize_age
 
 
 def get_session() -> Iterator[Session]:

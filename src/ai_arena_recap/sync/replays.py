@@ -19,7 +19,9 @@ _lock = asyncio.Lock()
 
 
 def _cleanup_old_replays(session: Session, replay_dir: Path, max_age_days: int) -> int:
-    cutoff = utcnow() - timedelta(days=max_age_days)
+    # SQLite strips tzinfo on read, so compare against a naive UTC cutoff to
+    # avoid TypeError between naive (DB) and aware (Python) datetimes.
+    cutoff = (utcnow() - timedelta(days=max_age_days)).replace(tzinfo=None)
     deleted = 0
 
     for tmp in replay_dir.glob("*.SC2Replay.tmp"):
@@ -31,7 +33,10 @@ def _cleanup_old_replays(session: Session, replay_dir: Path, max_age_days: int) 
         except ValueError:
             continue
         match = session.get(Match, match_id)
-        if match and match.result_created and match.result_created >= cutoff:
+        result_created = match.result_created if match else None
+        if result_created is not None and result_created.tzinfo is not None:
+            result_created = result_created.replace(tzinfo=None)
+        if result_created is not None and result_created >= cutoff:
             continue
         path.unlink(missing_ok=True)
         deleted += 1

@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 import pytest
 
 from ai_arena_recap.sync.common import parse_dt
+from ai_arena_recap.web.deps import humanize_age
 
 
 class TestParseDt:
@@ -28,3 +29,24 @@ class TestParseDt:
     def test_invalid_string_raises(self):
         with pytest.raises(ValueError):
             parse_dt("not a date")
+
+
+class TestHumanizeAge:
+    @pytest.mark.parametrize(
+        ("seconds", "expected"),
+        [
+            (0, "0s ago"),
+            (30, "30s ago"),
+            (59, "59s ago"),
+            (60, "1m ago"),
+            (90, "1m ago"),
+            (3599, "59m ago"),
+            (3600, "1h ago"),
+            (3700, "1h ago"),
+            (86399, "23h ago"),
+            (86400, "1d ago"),
+            (86400 * 3 + 50, "3d ago"),
+        ],
+    )
+    def test_unit_boundaries(self, seconds, expected):
+        assert humanize_age(seconds) == expected

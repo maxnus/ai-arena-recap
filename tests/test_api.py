@@ -125,3 +125,91 @@ class TestBotMatchesJson:
         assert body["total"] == 5
         assert body["last_page"] == 3
         assert len(body["data"]) == 2
+
+
+class TestMatchRecentVsJson:
+    def _seed_h2h_match(self, session, *, match_id: int, started, winner_id: int | None = 1):
+        upsert(session, Match, {
+            "id": match_id, "round_id": 1, "map_id": 1,
+            "started": started, "result_created": started,
+            "result_type": "Player1Win" if winner_id == 1 else "Player2Win",
+            "result_winner_bot_id": winner_id,
+            "last_synced": _now(),
+        })
+        upsert(session, MatchParticipation, {
+            "id": match_id * 10, "match_id": match_id, "bot_id": 1, "participant_number": 1,
+            "result": "win" if winner_id == 1 else "loss", "last_synced": _now(),
+        })
+        upsert(session, MatchParticipation, {
+            "id": match_id * 10 + 1, "match_id": match_id, "bot_id": 2, "participant_number": 2,
+            "result": "loss" if winner_id == 1 else "win", "last_synced": _now(),
+        })
+
+    def _seed_two_bots(self, session):
+        upsert(session, Competition, {"id": settings.competition_id, "name": "T", "last_synced": _now()})
+        upsert(session, Round, {"id": 1, "number": 1, "competition_id": settings.competition_id,
+                                "complete": True, "last_synced": _now()})
+        upsert(session, Map, {"id": 1, "name": "TestMap", "last_synced": _now()})
+        upsert(session, Bot, {"id": 1, "name": "Alpha", "plays_race": "T", "last_synced": _now()})
+        upsert(session, Bot, {"id": 2, "name": "Beta", "plays_race": "Z", "last_synced": _now()})
+
+    def test_404_for_unknown_match(self, client, engine):
+        r = client.get("/api/matches/9999/recent-vs.json")
+        assert r.status_code == 404
+
+    def test_returns_only_h2h_matches_within_window(self, client, session):
+        self._seed_two_bots(session)
+        # Two h2h matches inside the default 30d window:
+        self._seed_h2h_match(session, match_id=100, started=_now(), winner_id=1)
+        self._seed_h2h_match(session, match_id=101, started=_now(), winner_id=2)
+        # And one that pre-dates the window — should be filtered out.
+        from datetime import timedelta
+        self._seed_h2h_match(session, match_id=102, started=_now() - timedelta(days=60), winner_id=1)
+        # And a third bot in another match that is *not* h2h:
+        upsert(session, Bot, {"id": 3, "name": "Gamma", "plays_race": "P", "last_synced": _now()})
+        upsert(session, Match, {"id": 200, "round_id": 1, "map_id": 1,
+                                "started": _now(), "result_created": _now(),
+                                "last_synced": _now()})
+        upsert(session, MatchParticipation, {"id": 2000, "match_id": 200, "bot_id": 1,
+                                             "participant_number": 1, "result": "win",
+                                             "last_synced": _now()})
+        upsert(session, MatchParticipation, {"id": 2001, "match_id": 200, "bot_id": 3,
+                                             "participant_number": 2, "result": "loss",
+                                             "last_synced": _now()})
+        session.commit()
+
+        body = client.get("/api/matches/100/recent-vs.json").json()
+        assert sorted(row["match_id"] for row in body["data"]) == [100, 101]
+        assert sorted(body["bot_ids"]) == [1, 2]
+        assert sorted(body["bot_names"]) == ["Alpha", "Beta"]
+        # Winner names are resolved.
+        names = {row["match_id"]: row["winner_name"] for row in body["data"]}
+        assert names == {100: "Alpha", 101: "Beta"}
+
+
+class TestBotMatchupsJson:
+    def test_404_for_unknown_bot(self, client, engine):
+        r = client.get("/api/bots/9999/matchups.json")
+        assert r.status_code == 404
+
+    def test_returns_window_and_min_games_metadata(self, client, session):
+        upsert(session, Bot, {"id": 1, "name": "Alpha", "plays_race": "T", "last_synced": _now()})
+        session.commit()
+
+        body = client.get("/api/bots/1/matchups.json").json()
+        assert body["data"] == []
+        assert body["window_days"] == 60
+        assert body["min_games"] == 10
+
+
+class TestBotRankHistoryJson:
+    def test_404_for_unknown_bot(self, client, engine):
+        r = client.get("/api/bots/9999/rank-history.json")
+        assert r.status_code == 404
+
+    def test_empty_data_when_no_matches(self, client, session):
+        upsert(session, Bot, {"id": 1, "name": "Alpha", "plays_race": "T", "last_synced": _now()})
+        session.commit()
+
+        body = client.get("/api/bots/1/rank-history.json").json()
+        assert body == {"data": []}

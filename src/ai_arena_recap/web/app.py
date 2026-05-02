@@ -7,7 +7,6 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, func, select
 
 from ai_arena_recap.config import settings
@@ -25,20 +24,6 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 log = logging.getLogger(__name__)
 
 WEB_DIR = Path(__file__).resolve().parent
-templates = Jinja2Templates(directory=str(WEB_DIR / "templates"))
-
-
-def _humanize_age(seconds: float) -> str:
-    if seconds < 60:
-        return f"{int(seconds)}s ago"
-    if seconds < 3600:
-        return f"{int(seconds // 60)}m ago"
-    if seconds < 86400:
-        return f"{int(seconds // 3600)}h ago"
-    return f"{int(seconds // 86400)}d ago"
-
-
-templates.env.filters["age"] = _humanize_age
 
 
 async def _scheduled_sync() -> None:

@@ -1,3 +1,4 @@
+from datetime import timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -6,7 +7,14 @@ from sqlmodel import Session, func, select
 
 from ai_arena_recap.config import settings
 from ai_arena_recap.models import Bot, CompetitionParticipation, Map, Match, MatchParticipation, Round
+from ai_arena_recap.sync.common import utcnow
 from ai_arena_recap.web.deps import get_session
+from ai_arena_recap.web.queries import (
+    MATCHUP_MIN_GAMES,
+    MATCHUP_WINDOW_DAYS,
+    bot_rank_history,
+    recent_matchups,
+)
 
 router = APIRouter(prefix="/api")
 
@@ -110,10 +118,6 @@ def match_recent_vs_json(
     session: Session = Depends(get_session),
 ) -> dict[str, Any]:
     """All matches between the same two bots in the last `days` days, newest first."""
-    from datetime import timedelta
-    from sqlalchemy import func as sqlfunc
-    from ai_arena_recap.sync.common import utcnow
-
     if session.get(Match, match_id) is None:
         raise HTTPException(status_code=404, detail="Match not found")
 
@@ -130,7 +134,7 @@ def match_recent_vs_json(
         select(MatchParticipation.match_id)
         .where(MatchParticipation.bot_id.in_(bot_ids))
         .group_by(MatchParticipation.match_id)
-        .having(sqlfunc.count(sqlfunc.distinct(MatchParticipation.bot_id)) == 2)
+        .having(func.count(func.distinct(MatchParticipation.bot_id)) == 2)
     ).all()
 
     rows = session.exec(
@@ -170,48 +174,17 @@ def match_recent_vs_json(
 def bot_matchups_json(bot_id: int, session: Session = Depends(get_session)) -> dict[str, Any]:
     if session.get(Bot, bot_id) is None:
         raise HTTPException(status_code=404, detail="Bot not found")
-    from ai_arena_recap.web.routes.bot import _recent_matchups, MATCHUP_MIN_GAMES, MATCHUP_WINDOW_DAYS
     return {
-        "data": _recent_matchups(session, bot_id),
+        "data": recent_matchups(session, bot_id),
         "window_days": MATCHUP_WINDOW_DAYS,
         "min_games": MATCHUP_MIN_GAMES,
     }
 
 
 @router.get("/bots/{bot_id}/rank-history.json")
-def bot_rank_history(bot_id: int, session: Session = Depends(get_session)) -> dict[str, Any]:
+def bot_rank_history_json(bot_id: int, session: Session = Depends(get_session)) -> dict[str, Any]:
     """For each round in the current competition, return the bot's rank
     (1 = best) based on mean resultant_elo across that round's matches."""
     if session.get(Bot, bot_id) is None:
         raise HTTPException(status_code=404, detail="Bot not found")
-
-    from sqlalchemy import text
-
-    rows = session.exec(text("""
-        WITH per_round_bot AS (
-            SELECT m.round_id, mp.bot_id, AVG(mp.resultant_elo) AS mean_elo
-            FROM match_participation mp
-            JOIN match m ON m.id = mp.match_id
-            JOIN round r ON r.id = m.round_id
-            WHERE mp.resultant_elo IS NOT NULL
-              AND r.competition_id = :competition_id
-            GROUP BY m.round_id, mp.bot_id
-        ),
-        ranked AS (
-            SELECT round_id, bot_id, mean_elo,
-                   RANK() OVER (PARTITION BY round_id ORDER BY mean_elo DESC) AS rk
-            FROM per_round_bot
-        )
-        SELECT r.number AS round_number, ranked.rk AS rank, ranked.mean_elo AS mean_elo
-        FROM ranked
-        JOIN round r ON r.id = ranked.round_id
-        WHERE ranked.bot_id = :bot_id
-        ORDER BY r.number
-    """), params={"competition_id": settings.competition_id, "bot_id": bot_id}).all()
-
-    return {
-        "data": [
-            {"round_number": int(r[0]), "rank": int(r[1]), "mean_elo": float(r[2])}
-            for r in rows
-        ],
-    }
+    return {"data": bot_rank_history(session, bot_id)}
