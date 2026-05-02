@@ -1,22 +1,22 @@
 {% extends "base.html" %}
-{% from "_macros.html" import race_icon %}
+{% from "_macros.html" import race_icon, local_dt %}
 {% block title %}Match {{ match.id }} &middot; AI Arena Recap{% endblock %}
 {% block content %}
   <h1>Match #{{ match.id }}</h1>
 
   <dl class="match-meta">
     <dt>Map</dt><dd>{{ map.name if map else (match.map_id or '?') }}</dd>
-    <dt>Started</dt><dd>{{ match.started.strftime('%Y-%m-%d %H:%M UTC') if match.started else 'not started' }}</dd>
-    <dt>Ended</dt><dd>{{ match.result_created.strftime('%Y-%m-%d %H:%M UTC') if match.result_created else 'in progress / no result' }}</dd>
+    <dt>Started</dt><dd>{{ local_dt(match.started) if match.started else 'not started' }}</dd>
+    <dt>Ended</dt><dd>{{ local_dt(match.result_created) if match.result_created else 'in progress / no result' }}</dd>
     {% if match.started and match.result_created %}
       {% set duration_s = (match.result_created - match.started).total_seconds() %}
       <dt>Duration (real-time)</dt>
-      <dd>{{ '%dm %02ds' % ((duration_s // 60), (duration_s % 60)) }}</dd>
+      <dd>{{ '%d:%02d' % ((duration_s // 60), (duration_s % 60)) }}</dd>
     {% endif %}
     {% if match.result_game_steps %}
       {% set ingame_duration_s = match.result_game_steps / 22.4 %}
       <dt>Duration (in-game)</dt>
-      <dd>{{ '%dm %02ds' % ((ingame_duration_s // 60), (ingame_duration_s % 60)) }}</dd>
+      <dd>{{ '%d:%02d' % ((ingame_duration_s // 60), (ingame_duration_s % 60)) }}</dd>
       <dt>Game steps</dt><dd>{{ match.result_game_steps }} (22.4 steps/sec at Faster speed)</dd>
     {% endif %}
     {% if match.result_type %}

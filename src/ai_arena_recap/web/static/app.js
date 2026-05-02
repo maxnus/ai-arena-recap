@@ -46,12 +46,22 @@ function formatStarted(value) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+// Server renders <time class="local-datetime" datetime="...Z">UTC text</time>.
+// On load, replace the visible text with the visitor's local-time render so
+// timestamps match the user's clock without server-side timezone detection.
+document.addEventListener("DOMContentLoaded", () => {
+  document.querySelectorAll("time.local-datetime").forEach((el) => {
+    const local = formatStarted(el.getAttribute("datetime"));
+    if (local) el.textContent = local;
+  });
+});
+
 function formatDuration(seconds) {
   if (seconds == null) return "";
   const total = Math.round(seconds);
   const m = Math.floor(total / 60);
   const s = total % 60;
-  return `${m}m ${String(s).padStart(2, "0")}s`;
+  return `${m}:${String(s).padStart(2, "0")}`;
 }
 
 // SC2 ladder runs at "Faster" game speed.

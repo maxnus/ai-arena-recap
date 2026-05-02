@@ -27,9 +27,10 @@
   </main>
 
   <footer>
+    {% from "_macros.html" import local_dt %}
     {% if last_synced_age_s is not none %}
       Data synced {{ last_synced_age_s | age }}
-      ({{ last_synced_dt.strftime('%Y-%m-%d %H:%M UTC') }}).
+      ({{ local_dt(last_synced_dt) }}).
     {% else %}
       No data synced yet.
     {% endif %}

@@ -276,6 +276,17 @@ def round_position_for_timestamp(session: Session, ts) -> float | None:
     return float(starts[-1][0])
 
 
+def bot_current_race_elo(session: Session, bot_id: int) -> dict[str, float]:
+    """Latest per-race ELO from the simulation in `bot_race_elo_history`.
+    Returns a dict keyed by race code; missing keys mean the bot hasn't faced
+    that race yet."""
+    history = bot_race_elo_history(session, bot_id)
+    if not history:
+        return {}
+    last_round = max(e["round_number"] for e in history)
+    return {e["race"]: e["rating"] for e in history if e["round_number"] == last_round}
+
+
 def bot_race_elo_history(session: Session, bot_id: int) -> list[dict]:
     """Per-round per-opponent-race ELO, computed by walking the bot's matches
     chronologically and applying the standard ELO update with K=RACE_ELO_K

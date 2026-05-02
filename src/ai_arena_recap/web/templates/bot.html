@@ -1,16 +1,18 @@
 {% extends "base.html" %}
-{% from "_macros.html" import race_icon, race_name %}
+{% from "_macros.html" import race_icon, local_dt %}
 {% block title %}{{ bot.name }} &middot; AI Arena Recap{% endblock %}
 {% block content %}
-  <h1>{{ bot.name }}</h1>
+  <div class="bot-title-block">
+    <span class="bot-title-icon">{{ race_icon(bot.plays_race) }}</span>
+    <h1 class="bot-title">{{ bot.name }}</h1>
+    {% if bot.user_name %}<p class="bot-subtitle">by {{ bot.user_name }}</p>{% endif %}
+  </div>
   <div class="bot-header">
     <div class="bot-meta">
       <dl class="bot-meta-col">
-        {% if bot.user_name %}<dt>Author</dt><dd>{{ bot.user_name }}</dd>{% endif %}
-        <dt>Race</dt><dd>{{ race_icon(bot.plays_race) }} {{ race_name(bot.plays_race) }}</dd>
         <dt>Type</dt><dd>{{ bot.type or '?' }}</dd>
         {% if bot.created %}<dt>Created</dt><dd>{{ bot.created.strftime('%Y-%m-%d') }}</dd>{% endif %}
-        {% if bot.bot_zip_updated %}<dt>Last updated</dt><dd>{{ bot.bot_zip_updated.strftime('%Y-%m-%d %H:%M UTC') }}</dd>{% endif %}
+        {% if bot.bot_zip_updated %}<dt>Last updated</dt><dd>{{ local_dt(bot.bot_zip_updated) }}</dd>{% endif %}
         {% if bot.bot_data_enabled is not none %}
           <dt>Data</dt>
           <dd>{{ 'enabled' if bot.bot_data_enabled else 'disabled' }}</dd>
@@ -18,21 +20,27 @@
         {% if cp %}<dt>Status</dt><dd>{% if cp.active %}<span class="status-active">active</span>{% else %}<span class="status-inactive">inactive</span>{% endif %}{% if cp.in_placements %} <span class="muted">(in placements)</span>{% endif %}</dd>{% endif %}
       </dl>
       {% if cp %}
-      <dl class="bot-meta-col bot-meta-col-numeric">
+      <dl class="bot-meta-col bot-meta-col-stats">
+        <h3 class="bot-meta-heading">Performance</h3>
+        <dt>Division</dt><dd>{{ cp.division_num if cp.division_num is not none else '?' }}</dd>
         <dt>ELO</dt><dd>{{ cp.elo if cp.elo is not none else '?' }}</dd>
         <dt>Peak ELO</dt><dd>{{ cp.highest_elo if cp.highest_elo is not none else '?' }}</dd>
-        <dt>Division</dt><dd>{{ cp.division_num if cp.division_num is not none else '?' }}</dd>
-        <dt>Wins</dt><dd>{{ cp.win_count }}</dd>
-        <dt>Losses</dt><dd>{{ cp.loss_count }}</dd>
-        <dt>Ties</dt><dd>{{ cp.tie_count }}</dd>
-        <dt>Crashes</dt><dd>{{ cp.crash_count }}</dd>
         <dt>Win rate</dt><dd>{{ '%.1f' % cp.win_perc if cp.win_perc is not none else '?' }}%</dd>
+        <dt>Crashes</dt><dd>{% if cp.crash_count >= 30 %}<span class="crash-bad"><svg class="warn-icon" viewBox="0 0 16 16" width="12" height="12" aria-label="warning"><path d="M8 1.5 L1.5 14 L14.5 14 Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><line x1="8" y1="6" x2="8" y2="10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="12" r="0.85" fill="currentColor"/></svg>{{ cp.crash_count }}</span>{% elif cp.crash_count >= 10 %}<span class="crash-warn">{{ cp.crash_count }}</span>{% else %}{{ cp.crash_count }}{% endif %}</dd>
         <dt>Avg duration</dt><dd>{% if match_stats.avg_duration_s is not none %}{{ '%d:%02d' % (match_stats.avg_duration_s // 60, match_stats.avg_duration_s % 60) }}{% else %}<span class="muted">–</span>{% endif %}</dd>
-        <dt>Avg step</dt><dd>{% if match_stats.avg_step_time_s is not none %}{{ '%.1f' % (match_stats.avg_step_time_s * 1000) }} ms{% else %}<span class="muted">–</span>{% endif %}</dd>
+        <dt>Avg step</dt><dd>{% if match_stats.avg_step_time_s is not none %}{% set ms = match_stats.avg_step_time_s * 1000 %}<span class="{{ 'step-1' if ms < 10 else 'step-2' if ms < 20 else 'step-3' if ms < 30 else 'step-4' if ms < 40 else 'step-5' }}">{{ '%.1f' % ms }} ms</span>{% else %}<span class="muted">–</span>{% endif %}</dd>
+      </dl>
+      <dl class="bot-meta-col bot-meta-col-numeric bot-meta-col-winrates">
+        <h3 class="bot-meta-heading">By race</h3>
+        <span></span>
+        <span class="bot-meta-col-label">ELO</span>
+        <span class="bot-meta-col-label">Win rate</span>
         {% for r in ['T', 'Z', 'P', 'R'] %}
           {% set wr = wr_by_race.get(r) %}
+          {% set elo = race_elo.get(r) %}
           <dt>vs {{ race_icon(r) }}</dt>
-          <dd>{% if wr and wr.win_rate is not none %}{{ '%.1f' % wr.win_rate }}% <span class="muted">({{ wr.matches }})</span>{% else %}<span class="muted">–</span>{% endif %}</dd>
+          <dd>{% if elo is not none %}{{ elo|round|int }}{% else %}<span class="muted">–</span>{% endif %}</dd>
+          <dd>{% if wr and wr.win_rate is not none %}{{ '%.1f' % wr.win_rate }}%{% else %}<span class="muted">–</span>{% endif %}</dd>
         {% endfor %}
       </dl>
       {% endif %}
@@ -46,15 +54,19 @@
             <span class="elo-legend-swatch" style="background:#58a6ff"></span>ELO
           </span>
           <span class="elo-legend-item elo-legend-by-race">
+            <span class="elo-legend-swatch" style="background:#4d9bd1"></span>
             ELO vs <img class="race-icon" src="/static/terran.svg" alt="Terran">
           </span>
           <span class="elo-legend-item elo-legend-by-race">
+            <span class="elo-legend-swatch" style="background:#b06bd1"></span>
             ELO vs <img class="race-icon" src="/static/zerg.svg" alt="Zerg">
           </span>
           <span class="elo-legend-item elo-legend-by-race">
+            <span class="elo-legend-swatch" style="background:#d1c34d"></span>
             ELO vs <img class="race-icon" src="/static/protoss.svg" alt="Protoss">
           </span>
           <span class="elo-legend-item elo-legend-by-race">
+            <span class="elo-legend-swatch" style="background:#86c232"></span>
             ELO vs <img class="race-icon" src="/static/random.svg" alt="Random">
           </span>
           <span class="elo-legend-item">
@@ -468,10 +480,10 @@
             filter: "agTextColumnFilter",
             filterValueGetter: (p) => p.data && p.data.result,
           },
-          { headerName: "Cause", field: "result_cause", width: 130, hide: true },
+          { headerName: "Cause", field: "result_cause", width: 130 },
           { headerName: "ELO", field: "resultant_elo", width: 100, type: "numericColumn" },
           {
-            headerName: "Avg step (ms)", field: "avg_step_time", width: 130, type: "numericColumn", hide: true,
+            headerName: "Avg step (ms)", field: "avg_step_time", width: 130, type: "numericColumn",
             valueFormatter: (p) => p.value == null ? "" : (p.value * 1000).toFixed(1),
             cellClassRules: {
               "step-1": (p) => p.value != null && p.value < 0.010,
@@ -509,7 +521,7 @@
         rowHeight: 32,
         headerHeight: 36,
         onGridReady: (params) => {
-          buildColumnTogglePanel(params.api, `bot-matches-cols-v1`, document.getElementById("matches-toolbar"));
+          buildColumnTogglePanel(params.api, `bot-matches-cols-v2`, document.getElementById("matches-toolbar"));
         },
       };
 
