@@ -83,6 +83,9 @@ class AiArenaClient:
     async def get_bot(self, bot_id: int) -> dict[str, Any]:
         return await self._get(f"{self.base_url}/bots/{bot_id}/", {"format": "json"})
 
+    async def get_user(self, user_id: int) -> dict[str, Any]:
+        return await self._get(f"{self.base_url}/users/{user_id}/", {"format": "json"})
+
     async def list_rounds(self, competition_id: int) -> AsyncIterator[dict[str, Any]]:
         async for item in self._paginate("/rounds/", {"competition": competition_id}):
             yield item

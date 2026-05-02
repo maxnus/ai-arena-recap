@@ -71,12 +71,26 @@ td.muted, .muted { color: var(--muted); }
 .down { color: var(--red); }
 .zero { color: var(--text); }
 
+/* 5-bucket gradient for avg step time: green → red in 10 ms steps. */
+.step-1 { color: var(--green); }      /* < 10 ms */
+.step-2 { color: #9bd13f; }           /* 10–20 ms */
+.step-3 { color: var(--yellow); }     /* 20–30 ms */
+.step-4 { color: #d27a22; }           /* 30–40 ms */
+.step-5 { color: var(--red); }        /* >= 40 ms */
+
 .race {
-  display: inline-block;
-  width: 1.4em; text-align: center;
-  border-radius: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  vertical-align: middle;
   font-weight: 700;
-  background: var(--panel);
+}
+.race-icon {
+  width: 18px;
+  height: 18px;
+  display: block;
 }
 .race-T { color: var(--race-T); }
 .race-Z { color: var(--race-Z); }
@@ -95,6 +109,26 @@ dl.bot-meta, dl.match-meta {
   gap: 0.2rem 1rem;
   background: var(--panel);
   padding: 0.8rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.bot-header {
+  display: grid;
+  grid-template-columns: minmax(320px, max-content) 1fr;
+  gap: 1rem;
+  align-items: stretch;
+  min-height: 260px;
+}
+.bot-header dl.bot-meta {
+  margin: 0;
+  height: 100%;
+  align-content: start;
+}
+.bot-header .elo-chart {
+  height: 100%;
+  min-height: 260px;
+  background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 4px;
 }
@@ -124,6 +158,40 @@ footer {
 }
 .button:hover { text-decoration: none; opacity: 0.9; }
 
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 26px;
+  color: var(--accent);
+  border-radius: 4px;
+  text-decoration: none;
+  vertical-align: middle;
+  font-size: 1.2rem;
+  line-height: 1;
+}
+.icon-button .glyph {
+  display: inline-block;
+  transform: scaleX(2.5);
+  transform-origin: center;
+}
+.icon-button:hover {
+  text-decoration: none;
+  background: rgba(88, 166, 255, 0.15);
+  color: var(--accent);
+}
+/* Mark replays the user has already downloaded — class added on click and
+ * persisted in localStorage (downloaded-replays-v1). */
+.icon-button.downloaded {
+  color: var(--muted) !important;
+  opacity: 0.45;
+}
+.icon-button.downloaded:hover {
+  color: var(--accent) !important;
+  opacity: 1;
+}
+
 .placeholder {
   margin-top: 2rem;
   padding: 1rem;
@@ -136,6 +204,34 @@ footer {
   color: var(--muted);
   font-size: 0.85rem;
   margin-top: 0;
+}
+.hint-inline {
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 0.8em;
+  margin-left: 0.4rem;
+}
+
+/* Win-rate cell: small horizontal bar + integer percent label. */
+.winrate-bar {
+  display: inline-block;
+  width: 110px;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 3px;
+  overflow: hidden;
+  vertical-align: middle;
+  margin-right: 0.5rem;
+}
+.winrate-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 3px;
+}
+.winrate-label {
+  font-variant-numeric: tabular-nums;
+  vertical-align: middle;
 }
 
 /* --- AG Grid host + dark Quartz theme tweaks --- */
@@ -164,7 +260,34 @@ footer {
 }
 .ag-theme-quartz-dark .ag-cell a { color: var(--accent); }
 .ag-theme-quartz-dark .ag-row.row-clickable { cursor: pointer; }
+/* Hide AG Grid's small sort-priority numbers (1, 2) shown for multi-sort. */
+.ag-theme-quartz-dark .ag-sort-order { display: none; }
+/* Separator line above the first row of each new division on the ladder. */
+.ag-theme-quartz-dark .ag-row.division-boundary {
+  border-top: 2px solid var(--accent);
+}
 .ag-theme-quartz-dark .ag-header-cell.ag-center-header .ag-header-cell-label { justify-content: center; }
+
+/* For right-aligned (numeric) columns AG Grid sets:
+ *   .ag-cell-label-container { flex-direction: row }   → menu on the LEFT
+ *   .ag-header-cell-label    { flex-direction: row-reverse } → text on the RIGHT
+ *   .ag-header-cell-text     { text-align: end }       → glyphs hug the right
+ * Override all three so every header reads "label on left, menu on right",
+ * regardless of column type. Cell content stays right-aligned via the
+ * separate ag-right-aligned-cell class. */
+.ag-theme-quartz-dark .ag-header-cell.ag-right-aligned-header .ag-cell-label-container {
+  flex-direction: row-reverse !important;
+}
+.ag-theme-quartz-dark .ag-header-cell.ag-right-aligned-header .ag-header-cell-label {
+  flex-direction: row !important;
+  justify-content: flex-start !important;
+}
+.ag-theme-quartz-dark .ag-header-cell.ag-right-aligned-header .ag-header-cell-text {
+  text-align: start !important;
+}
+.ag-theme-quartz-dark .ag-header-cell.ag-center-header .ag-header-cell-label {
+  justify-content: center !important;
+}
 
 /* --- Custom column-toggle toolbar --- */
 .grid-toolbar {

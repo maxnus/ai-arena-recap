@@ -29,12 +29,14 @@ def _bot_values(data: dict) -> dict:
         "created": parse_dt(data.get("created")),
         "game_display_id": data.get("game_display_id"),
         "wiki_article_content": data.get("wiki_article_content"),
+        "bot_data_enabled": data.get("bot_data_enabled"),
         "last_synced": utcnow(),
     }
 
 
 async def sync_bots(session: Session, client: AiArenaClient, bot_ids: set[int], *, force: bool = False) -> None:
-    """Fetch each bot in `bot_ids`, skipping those synced within bot_refresh_seconds unless force=True."""
+    """Fetch each bot in `bot_ids`, skipping those synced within bot_refresh_seconds unless force=True.
+    Also fetches the corresponding user records so we can populate Bot.user_name (the author)."""
     if not bot_ids:
         return
     cutoff = utcnow() - timedelta(seconds=settings.bot_refresh_seconds)
@@ -56,9 +58,27 @@ async def sync_bots(session: Session, client: AiArenaClient, bot_ids: set[int], 
             log.warning("Failed to fetch bot %s: %s", bid, exc)
             return None
 
-    results = await asyncio.gather(*[_one(b) for b in bot_ids])
-    for data in results:
-        if data is None:
-            continue
-        upsert(session, Bot, _bot_values(data))
+    bot_data = await asyncio.gather(*[_one(b) for b in bot_ids])
+    bot_data = [d for d in bot_data if d is not None]
+
+    # Fetch user (author) info for each unique user_id referenced by these bots.
+    user_ids = {d["user"] for d in bot_data if isinstance(d.get("user"), int)}
+
+    async def _user(uid: int) -> tuple[int, str | None]:
+        try:
+            u = await client.get_user(uid)
+            return uid, u.get("username")
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Failed to fetch user %s: %s", uid, exc)
+            return uid, None
+
+    user_results = await asyncio.gather(*[_user(uid) for uid in user_ids])
+    user_names: dict[int, str | None] = dict(user_results)
+
+    for data in bot_data:
+        values = _bot_values(data)
+        uid = values.get("user_id")
+        if uid is not None:
+            values["user_name"] = user_names.get(uid)
+        upsert(session, Bot, values)
     session.commit()

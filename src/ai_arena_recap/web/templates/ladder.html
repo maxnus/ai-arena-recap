@@ -14,40 +14,84 @@
       const gridOptions = {
         rowData: data,
         domLayout: "autoHeight",
+        // Stretch every column proportionally to fill the grid width, using
+        // each column's `width` as its share. No more empty space on the right
+        // and no single column ballooning.
+        autoSizeStrategy: { type: "fitGridWidth", defaultMinWidth: 60 },
         defaultColDef: {
           sortable: true,
           resizable: true,
           filter: true,
-          floatingFilter: true,
           minWidth: 60,
+        },
+        // Override AG Grid's built-in numericColumn type so it only right-aligns
+        // the cell content, not the header. Keeps headers left-aligned with the
+        // menu icon on the right, while numbers in cells still align nicely.
+        columnTypes: {
+          numericColumn: { cellClass: "ag-right-aligned-cell", headerClass: "" },
         },
         columnDefs: [
           { headerName: "#", field: "rank", width: 70, pinned: "left", filter: false, floatingFilter: false },
           {
-            headerName: "Bot", field: "name", minWidth: 160, flex: 1, pinned: "left", filter: "agTextColumnFilter",
+            headerName: "Bot", field: "name", width: 200, minWidth: 160, filter: "agTextColumnFilter",
             cellRenderer: (p) => {
               const r = p.data;
               return `<a href="/bots/${r.bot_id}">${escapeHtml(r.name)}</a>`;
             },
           },
-          { headerName: "Race", field: "race", width: 90, cellRenderer: cellRenderers.race, filter: "agTextColumnFilter" },
+          {
+            headerName: "Race", field: "race", width: 150, filter: "agTextColumnFilter",
+            cellRenderer: (p) => {
+              const code = p.value;
+              if (!code) return "";
+              const name = RACE_NAMES[code] || code;
+              return `${raceBadge(code)} ${escapeHtml(name)}`;
+            },
+          },
+          { headerName: "Author", field: "author", width: 130, filter: "agTextColumnFilter" },
           { headerName: "Type", field: "type", width: 110 },
-          { headerName: "Div", field: "division", width: 80, type: "numericColumn" },
-          { headerName: "ELO", field: "elo", width: 90, type: "numericColumn", sort: "desc" },
+          {
+            headerName: "Division", field: "division", width: 80, type: "numericColumn",
+            sort: "asc", sortIndex: 0,
+          },
+          { headerName: "ELO", field: "elo", width: 70, type: "numericColumn", sort: "desc", sortIndex: 1 },
           { headerName: "Peak ELO", field: "highest_elo", width: 110, type: "numericColumn", hide: true },
           { headerName: "Matches", field: "match_count", width: 110, type: "numericColumn" },
-          { headerName: "W", field: "win_count", width: 80, type: "numericColumn" },
-          { headerName: "L", field: "loss_count", width: 80, type: "numericColumn" },
+          { headerName: "Wins", field: "win_count", width: 90, type: "numericColumn" },
+          { headerName: "Losses", field: "loss_count", width: 100, type: "numericColumn" },
           { headerName: "T", field: "tie_count", width: 80, type: "numericColumn", hide: true },
           { headerName: "Crash", field: "crash_count", width: 90, type: "numericColumn", hide: true },
           {
-            headerName: "Win %", field: "win_perc", width: 100, type: "numericColumn",
-            valueFormatter: (p) => p.value == null ? "" : p.value.toFixed(1),
+            headerName: "Win Rate", field: "win_perc", width: 110, type: "numericColumn",
+            valueFormatter: (p) => p.value == null ? "" : Math.round(p.value) + " %",
           },
         ],
         rowHeight: 32,
         headerHeight: 36,
         animateRows: false,
+        rowClass: "row-clickable",
+        onCellClicked: (event) => {
+          // Don't hijack clicks on links inside cells (e.g. the Bot name link).
+          if (event.event.target.closest("a")) return;
+          const botId = event.data && event.data.bot_id;
+          if (!botId) return;
+          const url = `/bots/${botId}`;
+          if (event.event.ctrlKey || event.event.metaKey || event.event.button === 1) {
+            window.open(url, "_blank");
+          } else {
+            window.location.href = url;
+          }
+        },
+        // First row of each division gets a separator line above it.
+        getRowClass: (params) => {
+          if (!params.data) return undefined;
+          const prevNode = params.api.getDisplayedRowAtIndex(params.node.rowIndex - 1);
+          const prev = prevNode && prevNode.data;
+          if (prev && prev.division !== params.data.division) {
+            return "division-boundary";
+          }
+          return undefined;
+        },
         onGridReady: (params) => {
           buildColumnTogglePanel(params.api, "ladder-cols-v1", document.getElementById("ladder-toolbar"));
         },

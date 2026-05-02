@@ -1,3 +1,5 @@
+const DOWNLOAD_ICON = "⬇";
+
 function escapeHtml(s) {
   if (s == null) return "";
   return String(s)
@@ -8,9 +10,32 @@ function escapeHtml(s) {
     .replace(/'/g, "&#39;");
 }
 
+const RACE_ICON_FILES = { T: "terran.svg", Z: "zerg.svg", P: "protoss.svg", R: "random.svg" };
+
+const DOWNLOADED_REPLAYS_KEY = "downloaded-replays-v1";
+
+function loadDownloadedReplays() {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(DOWNLOADED_REPLAYS_KEY) || "[]"));
+  } catch {
+    return new Set();
+  }
+}
+
+function markReplayDownloaded(matchId) {
+  const set = loadDownloadedReplays();
+  set.add(matchId);
+  localStorage.setItem(DOWNLOADED_REPLAYS_KEY, JSON.stringify([...set]));
+}
+const RACE_NAMES = { T: "Terran", Z: "Zerg", P: "Protoss", R: "Random" };
+
 function raceBadge(v) {
   const r = v || "X";
-  return `<span class="race race-${escapeHtml(r)}">${escapeHtml(r)}</span>`;
+  const file = RACE_ICON_FILES[r];
+  const inner = file
+    ? `<img class="race-icon" src="/static/${file}" alt="${escapeHtml(r)}">`
+    : `<span class="race-letter">${escapeHtml(r)}</span>`;
+  return `<span class="race race-${escapeHtml(r)}" title="${escapeHtml(r)}">${inner}</span>`;
 }
 
 function formatStarted(value) {

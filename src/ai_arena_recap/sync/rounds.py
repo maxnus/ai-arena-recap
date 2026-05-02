@@ -1,6 +1,7 @@
 import asyncio
 import logging
 
+from sqlalchemy import update
 from sqlmodel import Session, select
 
 from ai_arena_recap.api_client import AiArenaClient
@@ -53,24 +54,44 @@ async def _fetch_participations(client: AiArenaClient, match_id: int) -> list[di
 
 
 async def repair_incomplete_participations(session: Session, client: AiArenaClient) -> set[int]:
-    """Aiarena fills Match.result a moment before MatchParticipation.elo_change /
-    avg_step_time / result. If our sync hits that window, the match's participations
-    stay None forever (next tick skips the match because Match.result_created is set).
+    """Find matches where the Match row says the game is over but the participation
+    rows are missing or incomplete, and refetch them. Two failure modes are covered:
 
-    This pass finds such matches across all rounds and refetches their participations.
+    1. Race condition: aiarena fills Match.result_created a moment before the
+       participation rows get their elo_change / avg_step_time / result fields.
+    2. Partial sync: a transient API error during the round's batch fetch caused
+       us to drop the participations entirely (zero rows for the match).
     """
-    incomplete_match_ids = sorted(set(session.exec(
+    from sqlalchemy import func
+
+    finished = set(session.exec(
+        select(Match.id).where(Match.result_created.is_not(None))
+    ).all())
+    if not finished:
+        return set()
+
+    # A 1v1 match is "complete" iff it has at least 2 participations with a populated result.
+    complete = set(session.exec(
         select(MatchParticipation.match_id)
-        .join(Match, Match.id == MatchParticipation.match_id)
-        .where(Match.result_created.is_not(None), MatchParticipation.result.is_(None))
-    ).all()))
+        .where(MatchParticipation.result.is_not(None))
+        .group_by(MatchParticipation.match_id)
+        .having(func.count(MatchParticipation.id) >= 2)
+    ).all())
+
+    incomplete_match_ids = sorted(finished - complete)
     if not incomplete_match_ids:
         return set()
-    log.info("Repairing %d matches with incomplete participations", len(incomplete_match_ids))
+    log.info("Repairing %d matches with incomplete or missing participations", len(incomplete_match_ids))
 
     bot_ids: set[int] = set()
-    results = await asyncio.gather(*[_fetch_participations(client, mid) for mid in incomplete_match_ids])
-    for items in results:
+    results = await asyncio.gather(
+        *[_fetch_participations(client, mid) for mid in incomplete_match_ids],
+        return_exceptions=True,
+    )
+    for mid, items in zip(incomplete_match_ids, results, strict=True):
+        if isinstance(items, BaseException):
+            log.warning("Failed to fetch participations for match %s: %s", mid, items)
+            continue
         for p in items:
             if isinstance(p.get("bot"), int):
                 ensure_bot_stub(session, p["bot"])
@@ -107,13 +128,17 @@ async def sync_rounds_and_matches(
         local = session.get(Round, r["id"])
         if local is not None and local.complete:
             continue
+        api_complete = bool(r.get("complete"))
+        # Upsert with complete=False even if the API says complete, so a
+        # partial failure during match sync doesn't lock the round in a bad
+        # state. We re-mark complete only after match sync succeeds.
         upsert(session, Round, {
             "id": r["id"],
             "number": r.get("number") or 0,
             "competition_id": r.get("competition") or competition_id,
             "started": parse_dt(r.get("started")),
             "finished": parse_dt(r.get("finished")),
-            "complete": bool(r.get("complete")),
+            "complete": False,
             "last_synced": utcnow(),
         })
         session.commit()
@@ -134,17 +159,28 @@ async def sync_rounds_and_matches(
         session.commit()
 
         # Fetch participations concurrently, then write sequentially (single Session).
+        # return_exceptions=True so a single API hiccup doesn't erase the whole batch.
         if new_match_ids:
             log.info("Round %s: fetching participations for %d matches", r.get("number"), len(new_match_ids))
             results = await asyncio.gather(
-                *[_fetch_participations(client, mid) for mid in new_match_ids]
+                *[_fetch_participations(client, mid) for mid in new_match_ids],
+                return_exceptions=True,
             )
-            for items in results:
+            for mid, items in zip(new_match_ids, results, strict=True):
+                if isinstance(items, BaseException):
+                    log.warning("Failed to fetch participations for match %s: %s", mid, items)
+                    continue
                 for p in items:
                     if isinstance(p.get("bot"), int):
                         ensure_bot_stub(session, p["bot"])
                         bot_ids.add(p["bot"])
                     upsert(session, MatchParticipation, _participation_values(p))
+            session.commit()
+
+        # Match sync for this round succeeded; if the API says the round is
+        # complete, mark it so future syncs can skip it.
+        if api_complete:
+            session.exec(update(Round).where(Round.id == r["id"]).values(complete=True))
             session.commit()
 
     return bot_ids

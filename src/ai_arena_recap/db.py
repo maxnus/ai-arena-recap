@@ -28,6 +28,24 @@ def init_db() -> None:
     from ai_arena_recap import models  # noqa: F401
 
     SQLModel.metadata.create_all(engine)
+    _apply_lightweight_migrations()
+
+
+def _apply_lightweight_migrations() -> None:
+    """Add columns that exist on the SQLModel models but not on the live tables.
+
+    SQLModel.create_all only creates *missing tables*, not missing columns.
+    Rather than pulling in Alembic for the MVP we just ALTER TABLE on demand.
+    """
+    from sqlalchemy import inspect, text
+
+    inspector = inspect(engine)
+    if "bot" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("bot")}
+    if "bot_data_enabled" not in columns:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE bot ADD COLUMN bot_data_enabled BOOLEAN"))
 
 
 @contextmanager

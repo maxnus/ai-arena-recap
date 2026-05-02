@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import race_icon %}
 {% block title %}Match {{ match.id }} &middot; AI Arena Recap{% endblock %}
 {% block content %}
   <h1>Match #{{ match.id }}</h1>
@@ -43,7 +44,7 @@
         <tr>
           <td>{{ mp.participant_number }}</td>
           <td><a href="/bots/{{ bot.id }}">{{ bot.name }}</a></td>
-          <td class="race race-{{ bot.plays_race or 'X' }}">{{ bot.plays_race or '?' }}</td>
+          <td>{{ race_icon(bot.plays_race) }}</td>
           <td class="result-{{ mp.result or 'unknown' }}">{{ (mp.result or '?')|capitalize }}</td>
           <td>{{ mp.result_cause or '' }}</td>
           <td class="num">{{ mp.starting_elo if mp.starting_elo is not none else '' }}</td>
@@ -62,8 +63,85 @@
     <a class="ext-link" href="https://aiarena.net/matches/{{ match.id }}/" target="_blank" rel="noopener">View on aiarena.net &rarr;</a>
   </p>
 
+  <h2>Recent head-to-head <span class="hint-inline">(last 30 days)</span></h2>
+  <div id="recent-vs-grid" class="ag-theme-quartz-dark grid-host"></div>
+  <p id="recent-vs-empty" class="empty" hidden>No other matches between these two bots in the last 30 days.</p>
+
   <section class="placeholder">
     <h2>Replay analysis</h2>
     <p>Coming soon: parsed replay data &mdash; build orders, APM, supply graphs.</p>
   </section>
+
+  <script>
+    document.addEventListener("DOMContentLoaded", async () => {
+      const matchId = {{ match.id }};
+      const downloadedReplays = loadDownloadedReplays();
+      const res = await fetch(`/api/matches/${matchId}/recent-vs.json?days=30`);
+      const body = res.ok ? await res.json() : { data: [] };
+      // Exclude the current match from the list — already shown above.
+      const data = body.data.filter((r) => r.match_id !== matchId);
+      if (!data.length) {
+        document.getElementById("recent-vs-grid").style.display = "none";
+        document.getElementById("recent-vs-empty").hidden = false;
+        return;
+      }
+
+      const gridEl = document.getElementById("recent-vs-grid");
+      gridEl.addEventListener("click", (e) => {
+        const link = e.target.closest("a.icon-button");
+        if (!link) return;
+        const mid = parseInt(link.dataset.matchId, 10);
+        if (!mid) return;
+        downloadedReplays.add(mid);
+        markReplayDownloaded(mid);
+        link.classList.add("downloaded");
+      });
+
+      agGrid.createGrid(gridEl, {
+        rowData: data,
+        domLayout: "autoHeight",
+        autoSizeStrategy: { type: "fitGridWidth", defaultMinWidth: 60 },
+        defaultColDef: { sortable: true, resizable: true, filter: true, minWidth: 60 },
+        columnTypes: {
+          numericColumn: { cellClass: "ag-right-aligned-cell", headerClass: "" },
+        },
+        columnDefs: [
+          { headerName: "Match ID", field: "match_id", width: 110, type: "numericColumn" },
+          { headerName: "Started", field: "started", width: 160,
+            valueFormatter: (p) => formatStarted(p.value), sort: "desc" },
+          { headerName: "Map", field: "map", width: 200, filter: "agTextColumnFilter" },
+          {
+            headerName: "Winner", field: "winner_name", width: 180,
+            cellRenderer: (p) => p.value ? `<span class="result-win">${escapeHtml(p.value)}</span>` : "—",
+          },
+          {
+            headerName: "Duration", field: "game_steps", width: 130, type: "numericColumn",
+            valueFormatter: (p) => formatGameStepsAsDuration(p.value),
+          },
+          {
+            headerName: "Replay", field: "match_id", colId: "replay",
+            width: 90, sortable: false, filter: false, headerClass: "ag-center-header",
+            cellStyle: { textAlign: "center" },
+            cellRenderer: (p) => {
+              const r = p.data;
+              if (!r || !r.ended) return "";
+              const cls = downloadedReplays.has(r.match_id) ? "icon-button downloaded" : "icon-button";
+              return `<a class="${cls}" data-match-id="${r.match_id}" href="/matches/${r.match_id}/replay" title="Download replay"><span class="glyph">${DOWNLOAD_ICON}</span></a>`;
+            },
+          },
+        ],
+        rowClass: "row-clickable",
+        rowHeight: 32,
+        headerHeight: 36,
+        onCellClicked: (e) => {
+          if (e.event.target.closest("a")) return;
+          const mid = e.data && e.data.match_id;
+          if (!mid) return;
+          const url = `/matches/${mid}`;
+          if (e.event.ctrlKey || e.event.metaKey || e.event.button === 1) window.open(url, "_blank");
+          else window.location.href = url;
+        },
+      });
+    });
+  </script>
 {% endblock %}

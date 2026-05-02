@@ -16,6 +16,18 @@ from ai_arena_recap.models import Bot, Competition, Match, Round
 from ai_arena_recap.sync.runner import sync_all
 from ai_arena_recap.web.routes import api, bot, ladder, match
 
+# Uvicorn doesn't add a handler to the root logger, so our package's INFO
+# messages (e.g. "Starting sync") would otherwise be silently dropped. Attach
+# a handler directly to the package logger so its records are emitted
+# regardless of how the app was started.
+_pkg_log = logging.getLogger("ai_arena_recap")
+if not _pkg_log.handlers:
+    _pkg_log.setLevel(logging.INFO)
+    _h = logging.StreamHandler()
+    _h.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    _pkg_log.addHandler(_h)
+    _pkg_log.propagate = False
+
 log = logging.getLogger(__name__)
 
 WEB_DIR = Path(__file__).resolve().parent
@@ -35,18 +47,25 @@ def _humanize_age(seconds: float) -> str:
 templates.env.filters["age"] = _humanize_age
 
 
+async def _scheduled_sync() -> None:
+    """Wrapper around sync_all that logs the scheduler tick itself."""
+    log.info("Scheduler tick — running sync (interval=%ss)", settings.sync_interval_seconds)
+    await sync_all()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
 
     scheduler = AsyncIOScheduler()
     scheduler.add_job(
-        sync_all,
+        _scheduled_sync,
         "interval",
         seconds=settings.sync_interval_seconds,
         id="sync_all",
         max_instances=1,
-        coalesce=True,
+        coalesce=True,           # if many fires were missed (e.g. system sleep), run once
+        misfire_grace_time=None, # ...no matter how late — default 1s would drop them
         next_run_time=None,
     )
     scheduler.start()

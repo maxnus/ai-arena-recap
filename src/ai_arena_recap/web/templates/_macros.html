@@ -1,0 +1,17 @@
+{% set _race_files = {'T': 'terran.svg', 'Z': 'zerg.svg', 'P': 'protoss.svg', 'R': 'random.svg'} %}
+{% set _race_names = {'T': 'Terran', 'Z': 'Zerg', 'P': 'Protoss', 'R': 'Random'} %}
+
+{% macro race_name(race) -%}
+  {{- _race_names.get(race, race or '?') -}}
+{%- endmacro %}
+
+{% macro race_icon(race) -%}
+  {% set r = race or 'X' %}
+  <span class="race race-{{ r }}" title="{{ r }}">
+    {%- if r in _race_files -%}
+      <img class="race-icon" src="/static/{{ _race_files[r] }}" alt="{{ r }}">
+    {%- else -%}
+      <span class="race-letter">?</span>
+    {%- endif -%}
+  </span>
+{%- endmacro %}
