@@ -60,6 +60,7 @@
           domLayout: "autoHeight",
           autoSizeStrategy: { type: "fitGridWidth", defaultMinWidth: 60 },
           defaultColDef: { sortable: true, resizable: true, filter: true, minWidth: 60 },
+          tooltipShowDelay: 300,
           columnTypes: {
             numericColumn: { cellClass: "ag-right-aligned-cell", headerClass: "" },
           },
@@ -72,18 +73,23 @@
               headerName: "Race", field: "opp_race", width: 140, filter: "agTextColumnFilter",
               cellRenderer: (p) => p.value ? `${raceBadge(p.value)} ${escapeHtml(RACE_NAMES[p.value] || p.value)}` : "",
             },
-            { headerName: "Games", field: "matches", width: 90, type: "numericColumn" },
-            { headerName: "Wins", field: "wins", width: 90, type: "numericColumn",
-              cellRenderer: (p) => `<span class="result-win">${p.value}</span>` },
-            { headerName: "Losses", field: "losses", width: 100, type: "numericColumn",
-              cellRenderer: (p) => `<span class="result-loss">${p.value}</span>` },
-            { headerName: "Ties", field: "ties", width: 80, type: "numericColumn" },
+            { headerName: "Games", field: "matches", width: 90, type: "numericColumn",
+              headerTooltip: "Total games played (excluding crashes and errors)",
+            },
             {
-              headerName: "Win rate", field: "win_rate", width: 200, sort: "desc",
+              headerName: "W / L / T", field: "wins", width: 140, type: "numericColumn",
+              headerTooltip: "Wins / Losses / Ties",
+              cellRenderer: (p) => `<span class="result-win">${p.data.wins}</span> / <span class="result-loss">${p.data.losses}</span> / ${p.data.ties}`,
+              comparator: (a, b) => a - b,
+            },
+            {
+              headerName: "Performance", field: "win_rate", width: 200, sort: "desc",
+              headerTooltip: "Effective win rate: (wins + ties/2) / games. Bar shows win/tie/loss ratio.",
               cellRenderer: (p) => {
-                const wr = p.value || 0;
-                return `<div class="winrate-bar"><span style="width: ${wr}%;"></span></div>` +
-                  `<span class="winrate-label">${Math.round(wr)} %</span>`;
+                const d = p.data, total = (d.wins + d.losses + d.ties) || 1;
+                const wp = d.wins / total * 100, tp = d.ties / total * 100, lp = d.losses / total * 100;
+                return `<div class="winrate-bar"><span class="wr-w" style="width:${wp}%"></span><span class="wr-t" style="width:${tp}%"></span><span class="wr-l" style="width:${lp}%"></span></div>` +
+                  `<span class="winrate-label">${Math.round(p.value || 0)} %</span>`;
               },
             },
             {
@@ -103,6 +109,7 @@
             },
             {
               headerName: "Avg ΔELO", field: "avg_change", width: 110, type: "numericColumn",
+              headerTooltip: "Average ELO change per game against this opponent",
               valueFormatter: (p) => {
                 if (p.value == null) return "";
                 const rounded = Math.round(p.value * 100) / 100;  // ≤ 2 decimals, no trailing zeros
@@ -115,6 +122,7 @@
             },
             {
               headerName: "Avg duration", field: "avg_duration_s", width: 130, type: "numericColumn",
+              headerTooltip: "Average game duration against this opponent",
               valueFormatter: (p) => formatDuration(p.value),
             },
           ],

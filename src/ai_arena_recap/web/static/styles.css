@@ -214,7 +214,7 @@ footer {
 
 /* Win-rate cell: small horizontal bar + integer percent label. */
 .winrate-bar {
-  display: inline-block;
+  display: inline-flex;
   width: 110px;
   height: 8px;
   background: rgba(255, 255, 255, 0.06);
@@ -223,12 +223,9 @@ footer {
   vertical-align: middle;
   margin-right: 0.5rem;
 }
-.winrate-bar > span {
-  display: block;
-  height: 100%;
-  background: var(--accent);
-  border-radius: 3px;
-}
+.winrate-bar > .wr-w { background: var(--green); }
+.winrate-bar > .wr-t { background: var(--yellow); margin: 0 1px; }
+.winrate-bar > .wr-l { background: var(--red); }
 .winrate-label {
   font-variant-numeric: tabular-nums;
   vertical-align: middle;

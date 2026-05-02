@@ -55,7 +55,7 @@ def _recent_matchups(session: Session, bot_id: int) -> list[dict]:
         .join(OppBot, OppBot.id == Opp.bot_id)
         .where(MatchParticipation.bot_id == bot_id)
         .where(Match.started >= cutoff)
-        .where(MatchParticipation.result.is_not(None))
+        .where(MatchParticipation.result.in_(("win", "loss", "tie")))
         .group_by(OppBot.id, OppBot.name, OppBot.plays_race)
         .having(matches >= MATCHUP_MIN_GAMES)
         .order_by(matches.desc())
@@ -81,7 +81,7 @@ def _recent_matchups(session: Session, bot_id: int) -> list[dict]:
             "wins": w,
             "losses": l,
             "ties": t,
-            "win_rate": (w / m * 100) if m else 0.0,
+            "win_rate": ((w + t / 2) / m * 100) if m else 0.0,
             "avg_change": float(ec) if ec is not None else None,
             "avg_duration_s": (float(st) / 22.4) if st is not None else None,
             "trend_pp": trend_pp,
