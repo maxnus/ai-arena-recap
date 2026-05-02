@@ -13,20 +13,14 @@ from sqlmodel import Session, func, select
 from ai_arena_recap.config import settings
 from ai_arena_recap.db import engine, init_db
 from ai_arena_recap.models import Bot, Competition, Match, Round
+from ai_arena_recap.sync.replays import sync_replays
 from ai_arena_recap.sync.runner import sync_all
 from ai_arena_recap.web.routes import api, bot, ladder, match
 
-# Uvicorn doesn't add a handler to the root logger, so our package's INFO
-# messages (e.g. "Starting sync") would otherwise be silently dropped. Attach
-# a handler directly to the package logger so its records are emitted
-# regardless of how the app was started.
-_pkg_log = logging.getLogger("ai_arena_recap")
-if not _pkg_log.handlers:
-    _pkg_log.setLevel(logging.INFO)
-    _h = logging.StreamHandler()
-    _h.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
-    _pkg_log.addHandler(_h)
-    _pkg_log.propagate = False
+LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+
+logging.basicConfig(level=logging.INFO, format=LOG_FORMAT, force=True)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 log = logging.getLogger(__name__)
 
@@ -57,6 +51,13 @@ async def _scheduled_sync() -> None:
 async def lifespan(app: FastAPI):
     init_db()
 
+    log.info("Config: competition_id=%s, sync_interval=%ss, request_concurrency=%s",
+             settings.competition_id, settings.sync_interval_seconds, settings.request_concurrency)
+    log.info("Config: replay_cache_enabled=%s, replay_dir=%s, replay_max_age_days=%s, "
+             "replay_sync_interval=%ss, replay_download_concurrency=%s",
+             settings.replay_cache_enabled, settings.replay_dir, settings.replay_max_age_days,
+             settings.replay_sync_interval_seconds, settings.replay_download_concurrency)
+
     scheduler = AsyncIOScheduler()
     scheduler.add_job(
         _scheduled_sync,
@@ -68,10 +69,27 @@ async def lifespan(app: FastAPI):
         misfire_grace_time=None, # ...no matter how late — default 1s would drop them
         next_run_time=None,
     )
+    if settings.replay_cache_enabled:
+        scheduler.add_job(
+            sync_replays,
+            "interval",
+            seconds=settings.replay_sync_interval_seconds,
+            id="sync_replays",
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=None,
+            next_run_time=None,
+        )
     scheduler.start()
 
     # Kick off an initial sync in the background, but don't block startup.
-    app.state.initial_sync_task = asyncio.create_task(sync_all())
+    # Replay sync chains after match sync so there are matches to download for.
+    async def _initial_sync():
+        await sync_all()
+        if settings.replay_cache_enabled:
+            await sync_replays()
+
+    app.state.initial_sync_task = asyncio.create_task(_initial_sync())
 
     try:
         yield
@@ -100,11 +118,16 @@ def create_app() -> FastAPI:
                 "rounds": session.exec(select(func.count()).select_from(Round)).one(),
                 "matches": session.exec(select(func.count()).select_from(Match)).one(),
             }
+        replay_cache = {
+            "enabled": settings.replay_cache_enabled,
+            "cached_count": len(list(settings.replay_dir.glob("*.SC2Replay"))) if settings.replay_cache_enabled else 0,
+        }
         return JSONResponse({
             "competition_id": settings.competition_id,
             "competition_name": comp.name if comp else None,
             "competition_last_synced": comp.last_synced.isoformat() if comp else None,
             "counts": counts,
+            "replay_cache": replay_cache,
         })
 
     return app

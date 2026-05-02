@@ -42,6 +42,17 @@ def sync_cmd(
     asyncio.run(sync_all(max_rounds=max_rounds, force_bots=force_bots))
 
 
+@app.command("sync-replays")
+def sync_replays_cmd(verbose: bool = typer.Option(False, "--verbose", "-v")):
+    """Download replays for recent matches and clean up old ones."""
+    _setup_logging(verbose)
+    from ai_arena_recap.db import init_db
+    from ai_arena_recap.sync.replays import sync_replays
+
+    init_db()
+    asyncio.run(sync_replays())
+
+
 @app.command("serve")
 def serve_cmd(
     host: str = typer.Option("127.0.0.1", "--host"),
@@ -51,11 +62,17 @@ def serve_cmd(
     """Start the website (uvicorn). The background sync scheduler runs in-process."""
     import uvicorn
 
+    log_config = uvicorn.config.LOGGING_CONFIG
+    fmt = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+    log_config["formatters"]["default"]["fmt"] = fmt
+    log_config["formatters"]["access"]["fmt"] = fmt
+
     uvicorn.run(
         "ai_arena_recap.web.app:app",
         host=host,
         port=port,
         reload=reload,
+        log_config=log_config,
     )
 
 

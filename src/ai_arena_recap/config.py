@@ -19,14 +19,25 @@ class Settings(BaseSettings):
     api_base_url: str = "https://aiarena.net/api"
 
     db_path: Path = Field(default=PROJECT_ROOT / "data" / "recap.sqlite")
-    sync_interval_seconds: int = 600
+    sync_interval_seconds: int = 300
     request_concurrency: int = 8
     bot_refresh_seconds: int = 24 * 3600
+
+    replay_cache_enabled: bool = False
+    replay_dir: Path = Field(default=PROJECT_ROOT / "data" / "replays")
+    replay_max_age_days: int = 14
+    replay_sync_interval_seconds: int = 300
+    replay_download_concurrency: int = 4
 
     @property
     def database_url(self) -> str:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         return f"sqlite:///{self.db_path.as_posix()}"
+
+    @property
+    def replay_path(self) -> Path:
+        self.replay_dir.mkdir(parents=True, exist_ok=True)
+        return self.replay_dir
 
 
 settings = Settings()
