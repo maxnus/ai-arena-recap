@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import case, func
@@ -86,6 +86,35 @@ def _recent_matchups(session: Session, bot_id: int) -> list[dict]:
             "avg_duration_s": (float(st) / 22.4) if st is not None else None,
             "trend_pp": trend_pp,
         })
+    if not matchups:
+        return matchups
+
+    opp_ids = [m["opp_id"] for m in matchups]
+    Opp2 = aliased(MatchParticipation)
+    timeline_rows = session.exec(
+        select(Opp2.bot_id, MatchParticipation.result, Match.started)
+        .join(Match, Match.id == MatchParticipation.match_id)
+        .join(Opp2, (Opp2.match_id == Match.id) & (Opp2.bot_id != bot_id))
+        .where(MatchParticipation.bot_id == bot_id)
+        .where(Match.started >= cutoff)
+        .where(MatchParticipation.result.in_(("win", "loss", "tie")))
+        .where(Opp2.bot_id.in_(opp_ids))
+        .order_by(Match.started)
+    ).all()
+
+    from collections import defaultdict
+    abbrev = {"win": "w", "loss": "l", "tie": "t"}
+    window_seconds = MATCHUP_WINDOW_DAYS * 86400
+    per_opp: dict[int, list] = defaultdict(list)
+    for opp_id, result, started in timeline_rows:
+        started_aware = started if started.tzinfo else started.replace(tzinfo=timezone.utc)
+        age = (utcnow() - started_aware).total_seconds()
+        t = round(1 - age / window_seconds, 4)
+        per_opp[opp_id].append([t, abbrev.get(result, result)])
+
+    for m in matchups:
+        m["history"] = per_opp.get(m["opp_id"], [])
+
     matchups.sort(key=lambda m: m["win_rate"], reverse=True)
     return matchups
 

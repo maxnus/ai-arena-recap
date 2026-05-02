@@ -93,6 +93,41 @@
               },
             },
             {
+              headerName: "Results",
+              field: "history",
+              width: 140,
+              sortable: false,
+              filter: false,
+              headerTooltip: "Daily win/tie/loss breakdown over the last 30 days (green=win, yellow=tie, red=loss)",
+              cellRenderer: (p) => {
+                const hist = p.value;
+                if (!hist || !hist.length) return "";
+                const W = 120, H = 20, nBins = 10;
+                const bins = {};
+                for (const [t, r] of hist) {
+                  const d = Math.min(nBins - 1, Math.floor(t * nBins));
+                  if (!bins[d]) bins[d] = { w: 0, t: 0, l: 0 };
+                  bins[d][r]++;
+                }
+                const barW = W / nBins;
+                let bars = "";
+                for (let d = 0; d < nBins; d++) {
+                  if (!bins[d]) bars += `<rect x="${d * barW}" y="0" width="${barW - 0.5}" height="${H}" fill="rgba(255,255,255,0.12)"/>`;
+                }
+                for (const [d, c] of Object.entries(bins)) {
+                  const total = c.w + c.t + c.l;
+                  const x = d * barW;
+                  const wH = c.w / total * H, tH = c.t / total * H, lH = c.l / total * H;
+                  if (c.w) bars += `<rect x="${x}" y="0" width="${barW - 0.5}" height="${wH}" fill="var(--green)"/>`;
+                  if (c.t) bars += `<rect x="${x}" y="${wH}" width="${barW - 0.5}" height="${tH}" fill="var(--yellow)"/>`;
+                  if (c.l) bars += `<rect x="${x}" y="${wH + tH}" width="${barW - 0.5}" height="${lH}" fill="var(--red)"/>`;
+                }
+                return `<svg width="${W}" height="${H}" style="vertical-align:middle">` +
+                  `<rect width="${W}" height="${H}" fill="none" stroke="rgba(255,255,255,0.25)" rx="2"/>` +
+                  bars + `</svg>`;
+              },
+            },
+            {
               headerName: "Trend",
               field: "trend_pp",
               width: 110,
