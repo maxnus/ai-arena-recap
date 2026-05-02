@@ -104,7 +104,7 @@ td.muted, .muted { color: var(--muted); }
 .result-tie { color: var(--yellow); }
 .result-crash { color: var(--red); font-style: italic; }
 
-dl.bot-meta, dl.match-meta {
+dl.bot-meta-col, dl.match-meta {
   display: grid;
   grid-template-columns: max-content 1fr;
   gap: 0.2rem 1rem;
@@ -121,10 +121,22 @@ dl.bot-meta, dl.match-meta {
   align-items: stretch;
   min-height: 260px;
 }
-.bot-header dl.bot-meta {
+.bot-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  height: 100%;
+}
+.status-active { color: var(--green); font-weight: 600; }
+.status-inactive { color: var(--red); font-weight: 600; }
+.bot-header dl.bot-meta-col {
   margin: 0;
   height: 100%;
   align-content: start;
+}
+dl.bot-meta-col-numeric dd {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 .bot-header .elo-chart {
   height: 100%;

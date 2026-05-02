@@ -4,22 +4,37 @@
 {% block content %}
   <h1>{{ bot.name }}</h1>
   <div class="bot-header">
-    <dl class="bot-meta">
-      <dt>Race</dt><dd>{{ race_icon(bot.plays_race) }} {{ race_name(bot.plays_race) }}</dd>
-      <dt>Type</dt><dd>{{ bot.type or '?' }}</dd>
+    <div class="bot-meta">
+      <dl class="bot-meta-col">
+        {% if bot.user_name %}<dt>Author</dt><dd>{{ bot.user_name }}</dd>{% endif %}
+        <dt>Race</dt><dd>{{ race_icon(bot.plays_race) }} {{ race_name(bot.plays_race) }}</dd>
+        <dt>Type</dt><dd>{{ bot.type or '?' }}</dd>
+        {% if bot.created %}<dt>Created</dt><dd>{{ bot.created.strftime('%Y-%m-%d') }}</dd>{% endif %}
+        {% if bot.last_synced %}<dt>Last updated</dt><dd>{{ bot.last_synced.strftime('%Y-%m-%d %H:%M UTC') }}</dd>{% endif %}
+        {% if bot.bot_data_enabled is not none %}
+          <dt>Data</dt>
+          <dd>{{ 'enabled' if bot.bot_data_enabled else 'disabled' }}</dd>
+        {% endif %}
+        {% if cp %}<dt>Status</dt><dd>{% if cp.active %}<span class="status-active">active</span>{% else %}<span class="status-inactive">inactive</span>{% endif %}{% if cp.in_placements %} <span class="muted">(in placements)</span>{% endif %}</dd>{% endif %}
+      </dl>
       {% if cp %}
-        <dt>ELO</dt><dd>{{ cp.elo if cp.elo is not none else '?' }} (peak {{ cp.highest_elo if cp.highest_elo is not none else '?' }})</dd>
+      <dl class="bot-meta-col bot-meta-col-numeric">
+        <dt>ELO</dt><dd>{{ cp.elo if cp.elo is not none else '?' }}</dd>
+        <dt>Peak ELO</dt><dd>{{ cp.highest_elo if cp.highest_elo is not none else '?' }}</dd>
         <dt>Division</dt><dd>{{ cp.division_num if cp.division_num is not none else '?' }}</dd>
-        <dt>Record</dt><dd>{{ cp.win_count }}W &middot; {{ cp.loss_count }}L &middot; {{ cp.tie_count }}T &middot; {{ cp.crash_count }} crash</dd>
+        <dt>Wins</dt><dd>{{ cp.win_count }}</dd>
+        <dt>Losses</dt><dd>{{ cp.loss_count }}</dd>
+        <dt>Ties</dt><dd>{{ cp.tie_count }}</dd>
+        <dt>Crashes</dt><dd>{{ cp.crash_count }}</dd>
         <dt>Win rate</dt><dd>{{ '%.1f' % cp.win_perc if cp.win_perc is not none else '?' }}%</dd>
+        {% for r in ['T', 'Z', 'P', 'R'] %}
+          {% set wr = wr_by_race.get(r) %}
+          <dt>vs {{ race_icon(r) }}</dt>
+          <dd>{% if wr and wr.win_rate is not none %}{{ '%.1f' % wr.win_rate }}% <span class="muted">({{ wr.matches }})</span>{% else %}<span class="muted">–</span>{% endif %}</dd>
+        {% endfor %}
+      </dl>
       {% endif %}
-      {% if bot.created %}<dt>Created</dt><dd>{{ bot.created.strftime('%Y-%m-%d') }}</dd>{% endif %}
-      {% if bot.last_synced %}<dt>Last updated</dt><dd>{{ bot.last_synced.strftime('%Y-%m-%d %H:%M UTC') }}</dd>{% endif %}
-      {% if bot.bot_data_enabled is not none %}
-        <dt>Data</dt>
-        <dd>{{ 'enabled' if bot.bot_data_enabled else 'disabled' }}</dd>
-      {% endif %}
-    </dl>
+    </div>
     <div id="elo-chart" class="elo-chart"></div>
   </div>
 
@@ -193,22 +208,22 @@
         });
       }
 
-      // ELO over rounds — average resultant_elo across all matches in each
-      // competition round, plotted against round number.
-      const byRound = new Map();
+      // Mean resultant_elo per round. Smoother than the last-match value and
+      // also defined for the current round before it finishes.
+      const perRound = new Map();
       for (const r of data) {
         if (r.round_number == null || r.resultant_elo == null) continue;
-        let bucket = byRound.get(r.round_number);
+        let bucket = perRound.get(r.round_number);
         if (!bucket) {
           bucket = { sum: 0, count: 0 };
-          byRound.set(r.round_number, bucket);
+          perRound.set(r.round_number, bucket);
         }
         bucket.sum += r.resultant_elo;
         bucket.count += 1;
       }
-      const rounds = [...byRound.keys()].sort((a, b) => a - b);
-      const meanElo = rounds.map((n) => {
-        const b = byRound.get(n);
+      const rounds = [...perRound.keys()].sort((a, b) => a - b);
+      const eloByRound = rounds.map((n) => {
+        const b = perRound.get(n);
         return Math.round((b.sum / b.count) * 10) / 10;
       });
       if (rounds.length) {
@@ -232,13 +247,13 @@
           [
             {
               x: rounds,
-              y: meanElo,
+              y: eloByRound,
               type: "scatter",
               mode: "lines+markers",
-              name: "Mean ELO",
+              name: "ELO",
               line: { color: "#58a6ff", width: 2 },
               marker: { size: 5, color: "#58a6ff" },
-              hovertemplate: "Round %{x}<br>Mean ELO %{y}<extra></extra>",
+              hovertemplate: "Round %{x}<br>ELO %{y}<extra></extra>",
             },
             {
               x: rankRounds,
@@ -273,7 +288,7 @@
                 range: [Math.max(0.5, rounds[0] - 0.5), last + 0.5],
               };
             })(),
-            yaxis: { title: "Mean ELO", gridcolor: "#30363d", zeroline: false },
+            yaxis: { title: "ELO", gridcolor: "#30363d", zeroline: false },
             yaxis2: {
               title: "Rank",
               overlaying: "y",

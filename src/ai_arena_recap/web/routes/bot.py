@@ -6,7 +6,7 @@ from sqlalchemy.orm import aliased
 from sqlmodel import Session, select
 
 from ai_arena_recap.config import settings
-from ai_arena_recap.models import Bot, CompetitionParticipation, Match, MatchParticipation
+from ai_arena_recap.models import Bot, CompetitionParticipation, Match, MatchParticipation, Round
 from ai_arena_recap.sync.common import utcnow
 from ai_arena_recap.web.deps import get_session, render
 
@@ -122,6 +122,45 @@ def _recent_matchups(session: Session, bot_id: int) -> list[dict]:
     return matchups
 
 
+def _winrate_by_race(session: Session, bot_id: int) -> dict[str, dict]:
+    """Per-opponent-race W/L/T totals across the current competition. Ties count as half a win."""
+    Opp = aliased(MatchParticipation)
+    OppBot = aliased(Bot)
+    matches = func.count(Match.id)
+    wins = func.coalesce(func.sum(case((MatchParticipation.result == "win", 1), else_=0)), 0)
+    losses = func.coalesce(func.sum(case((MatchParticipation.result == "loss", 1), else_=0)), 0)
+    ties = func.coalesce(func.sum(case((MatchParticipation.result == "tie", 1), else_=0)), 0)
+
+    rows = session.exec(
+        select(
+            OppBot.plays_race,
+            matches.label("matches"),
+            wins.label("wins"),
+            losses.label("losses"),
+            ties.label("ties"),
+        )
+        .join(Match, Match.id == MatchParticipation.match_id)
+        .join(Round, Round.id == Match.round_id)
+        .join(Opp, (Opp.match_id == Match.id) & (Opp.bot_id != bot_id))
+        .join(OppBot, OppBot.id == Opp.bot_id)
+        .where(MatchParticipation.bot_id == bot_id)
+        .where(Round.competition_id == settings.competition_id)
+        .where(MatchParticipation.result.in_(("win", "loss", "tie")))
+        .group_by(OppBot.plays_race)
+    ).all()
+
+    return {
+        race: {
+            "matches": m,
+            "wins": w,
+            "losses": l,
+            "ties": t,
+            "win_rate": ((w + t / 2) / m * 100) if m else None,
+        }
+        for race, m, w, l, t in rows
+    }
+
+
 @router.get("/bots/{bot_id}")
 def bot_page(bot_id: int, request: Request, session: Session = Depends(get_session)):
     bot = session.get(Bot, bot_id)
@@ -139,6 +178,7 @@ def bot_page(bot_id: int, request: Request, session: Session = Depends(get_sessi
         "bot.html",
         bot=bot,
         cp=cp,
+        wr_by_race=_winrate_by_race(session, bot_id),
         matchup_window_days=MATCHUP_WINDOW_DAYS,
         matchup_min_games=MATCHUP_MIN_GAMES,
     )
