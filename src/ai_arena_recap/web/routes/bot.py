@@ -9,7 +9,7 @@ from ai_arena_recap.web.queries import (
     MATCHUP_WINDOW_DAYS,
     bot_avg_match_stats,
     bot_current_race_elo,
-    competition_round_starts,
+    competition_round_ends,
     round_position_for_timestamp,
     winrate_by_race,
 )
@@ -41,5 +41,5 @@ def bot_page(bot_id: int, request: Request, session: Session = Depends(get_sessi
         matchup_window_days=MATCHUP_WINDOW_DAYS,
         matchup_min_games=MATCHUP_MIN_GAMES,
         update_round=update_round,
-        round_starts=competition_round_starts(session),
+        round_ends=competition_round_ends(session),
     )

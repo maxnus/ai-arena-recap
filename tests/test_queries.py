@@ -229,7 +229,7 @@ class TestBotRankHistory:
 
         alpha_history = bot_rank_history(session, 1)
         assert [(r["round_number"], r["rank"]) for r in alpha_history] == [(1, 1), (2, 2)]
-        assert alpha_history[0]["mean_elo"] == 1600.0
+        assert alpha_history[0]["end_elo"] == 1600.0
 
         beta_history = bot_rank_history(session, 2)
         assert [(r["round_number"], r["rank"]) for r in beta_history] == [(1, 2), (2, 1)]

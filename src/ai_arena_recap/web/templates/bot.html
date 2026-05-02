@@ -248,24 +248,16 @@
         });
       }
 
-      // Mean resultant_elo per round. Smoother than the last-match value and
-      // also defined for the current round before it finishes.
-      const perRound = new Map();
-      for (const r of data) {
-        if (r.round_number == null || r.resultant_elo == null) continue;
-        let bucket = perRound.get(r.round_number);
-        if (!bucket) {
-          bucket = { sum: 0, count: 0 };
-          perRound.set(r.round_number, bucket);
-        }
-        bucket.sum += r.resultant_elo;
-        bucket.count += 1;
-      }
-      const rounds = [...perRound.keys()].sort((a, b) => a - b);
-      const eloByRound = rounds.map((n) => {
-        const b = perRound.get(n);
-        return Math.round((b.sum / b.count) * 10) / 10;
-      });
+      // End-of-round ELO + rank both come from /api/.../rank-history.json
+      // (only completed rounds, end-of-round resultant_elo, sort all bots by
+      // that ELO for the rank). Fetched in parallel with the per-race ELO.
+      const [rankRes, raceEloRes] = await Promise.all([
+        fetch(`/api/bots/${botId}/rank-history.json`),
+        fetch(`/api/bots/${botId}/race-elo-history.json`),
+      ]);
+      const rankData = rankRes.ok ? (await rankRes.json()).data : [];
+      const rounds = rankData.map((r) => r.round_number);
+      const eloByRound = rankData.map((r) => r.end_elo);
       if (rounds.length) {
         // Pick a tick spacing that keeps roughly 8–15 labels on the axis.
         const span = rounds[rounds.length - 1] - rounds[0] + 1;
@@ -275,14 +267,7 @@
                     : span <= 120 ? 10
                     : 20;
 
-        // Fetch rank-per-round and per-race-ELO-per-round in parallel; chart
-        // draws the ELO trace even if either fails.
-        const [rankRes, raceEloRes] = await Promise.all([
-          fetch(`/api/bots/${botId}/rank-history.json`),
-          fetch(`/api/bots/${botId}/race-elo-history.json`),
-        ]);
-        const rankData = rankRes.ok ? (await rankRes.json()).data : [];
-        const rankRounds = rankData.map((r) => r.round_number);
+        const rankRounds = rounds;
         const rankValues = rankData.map((r) => r.rank);
         const maxRank = rankValues.length ? Math.max(...rankValues) : 1;
 
@@ -292,8 +277,8 @@
         for (const r of raceElo) {
           if (raceEloByRace[r.race]) raceEloByRace[r.race].push(r);
         }
-        // round_number -> "YYYY-MM-DD" for the competition's rounds.
-        const ROUND_DATES = {{ round_starts|tojson }};
+        // round_number -> "YYYY-MM-DD" of the round's end (Round.finished).
+        const ROUND_DATES = {{ round_ends|tojson }};
         const fmtRoundDate = (n) => {
           const iso = ROUND_DATES[n];
           if (!iso) return String(n);

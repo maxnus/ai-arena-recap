@@ -182,24 +182,35 @@ def recent_matchups(session: Session, bot_id: int) -> list[dict]:
 
 
 def bot_rank_history(session: Session, bot_id: int) -> list[dict]:
-    """Per-round rank (1 = best) for the bot across the current competition,
-    computed from mean resultant_elo within each round."""
+    """Per-round end-of-round rank (1 = best) and end-of-round ELO across the
+    current competition. End-of-round ELO is the resultant_elo of the bot's
+    latest match in that round (by Match.started). Only completed rounds are
+    returned — partial / in-progress rounds are excluded entirely."""
     rows = session.exec(text("""
-        WITH per_round_bot AS (
-            SELECT m.round_id, mp.bot_id, AVG(mp.resultant_elo) AS mean_elo
+        WITH ranked_matches AS (
+            SELECT m.round_id, mp.bot_id, mp.resultant_elo,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY m.round_id, mp.bot_id
+                       ORDER BY m.started DESC, m.id DESC
+                   ) AS rn
             FROM match_participation mp
             JOIN match m ON m.id = mp.match_id
             JOIN round r ON r.id = m.round_id
             WHERE mp.resultant_elo IS NOT NULL
               AND r.competition_id = :competition_id
-            GROUP BY m.round_id, mp.bot_id
+              AND r.complete = 1
+        ),
+        per_round_bot AS (
+            SELECT round_id, bot_id, resultant_elo AS end_elo
+            FROM ranked_matches
+            WHERE rn = 1
         ),
         ranked AS (
-            SELECT round_id, bot_id, mean_elo,
-                   RANK() OVER (PARTITION BY round_id ORDER BY mean_elo DESC) AS rk
+            SELECT round_id, bot_id, end_elo,
+                   RANK() OVER (PARTITION BY round_id ORDER BY end_elo DESC) AS rk
             FROM per_round_bot
         )
-        SELECT r.number AS round_number, ranked.rk AS rank, ranked.mean_elo AS mean_elo
+        SELECT r.number AS round_number, ranked.rk AS rank, ranked.end_elo AS end_elo
         FROM ranked
         JOIN round r ON r.id = ranked.round_id
         WHERE ranked.bot_id = :bot_id
@@ -207,7 +218,7 @@ def bot_rank_history(session: Session, bot_id: int) -> list[dict]:
     """), params={"competition_id": settings.competition_id, "bot_id": bot_id}).all()
 
     return [
-        {"round_number": int(r[0]), "rank": int(r[1]), "mean_elo": float(r[2])}
+        {"round_number": int(r[0]), "rank": int(r[1]), "end_elo": float(r[2])}
         for r in rows
     ]
 
@@ -235,34 +246,36 @@ def bot_avg_match_stats(session: Session, bot_id: int) -> dict:
     }
 
 
-def competition_round_starts(session: Session) -> dict[int, str]:
-    """Map round_number -> ISO date string ("YYYY-MM-DD") for every round in
-    the current competition that has a recorded start time. Used to label the
-    bot detail chart's x-axis with dates instead of bare round numbers."""
+def competition_round_ends(session: Session) -> dict[int, str]:
+    """Map round_number -> ISO date string ("YYYY-MM-DD") of the round's
+    end (Round.finished). Only completed rounds are returned. Used to label
+    the bot detail chart's x-axis with the end date of each round."""
     rows = session.exec(
-        select(Round.number, Round.started)
+        select(Round.number, Round.finished)
         .where(Round.competition_id == settings.competition_id)
-        .where(Round.started.is_not(None))  # type: ignore[union-attr]
+        .where(Round.complete == True)  # noqa: E712
+        .where(Round.finished.is_not(None))  # type: ignore[union-attr]
         .order_by(Round.number)
     ).all()
-    return {int(n): s.strftime("%Y-%m-%d") for n, s in rows}
+    return {int(n): f.strftime("%Y-%m-%d") for n, f in rows}
 
 
 def round_position_for_timestamp(session: Session, ts) -> float | None:
     """Map a datetime to the bot detail chart's x-axis (round number).
-    Linearly interpolates between consecutive rounds' `started` times so the
-    marker lands at the right place even mid-round. Returns None if the
-    timestamp can't be placed (no rounds with `started` set, or ts predates
-    the very first round in the competition)."""
+    Linearly interpolates between consecutive rounds' `finished` times so
+    the marker lands at the right place across rounds. Returns None if the
+    timestamp can't be placed (no completed rounds, or ts predates the end
+    of the very first round in the competition)."""
     from datetime import timezone
 
     if ts is None:
         return None
     rows = session.exec(
-        select(Round.number, Round.started)
+        select(Round.number, Round.finished)
         .where(Round.competition_id == settings.competition_id)
-        .where(Round.started.is_not(None))  # type: ignore[union-attr]
-        .order_by(Round.started)
+        .where(Round.complete == True)  # noqa: E712
+        .where(Round.finished.is_not(None))  # type: ignore[union-attr]
+        .order_by(Round.finished)
     ).all()
     if not rows:
         return None
@@ -273,11 +286,11 @@ def round_position_for_timestamp(session: Session, ts) -> float | None:
     def aware(t):
         return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
 
-    starts = [(int(n), aware(s)) for n, s in rows]
-    if ts < starts[0][1]:
-        return None  # bot was last updated before the competition started
+    ends = [(int(n), aware(f)) for n, f in rows]
+    if ts < ends[0][1]:
+        return None  # bot was last updated before the first round finished
 
-    for (n0, t0), (n1, t1) in zip(starts, starts[1:]):
+    for (n0, t0), (n1, t1) in zip(ends, ends[1:]):
         if t0 <= ts < t1:
             span = (t1 - t0).total_seconds()
             if span <= 0:
@@ -285,8 +298,8 @@ def round_position_for_timestamp(session: Session, ts) -> float | None:
             frac = (ts - t0).total_seconds() / span
             return n0 + frac * (n1 - n0)
 
-    # Past the last round's start — pin to the last round (incomplete or just done).
-    return float(starts[-1][0])
+    # Past the last completed round's end — pin to that round.
+    return float(ends[-1][0])
 
 
 def bot_current_race_elo(session: Session, bot_id: int) -> dict[str, float]:
@@ -320,6 +333,7 @@ def bot_race_elo_history(session: Session, bot_id: int) -> list[dict]:
         JOIN bot opp_bot ON opp_bot.id = opp_mp.bot_id
         WHERE mp.bot_id = :bot_id
           AND r.competition_id = :competition_id
+          AND r.complete = 1
           AND mp.result IN ('win', 'loss', 'tie')
           AND opp_mp.starting_elo IS NOT NULL
           AND opp_bot.plays_race IS NOT NULL
