@@ -134,9 +134,14 @@ class TestRepairIncompleteParticipations:
             "result_type": "Player1Win", "last_synced": _now(),
         })
         ensure_bot_stub(session, 10)
+        ensure_bot_stub(session, 20)
         upsert(session, MatchParticipation, {
             "id": 100, "match_id": 1, "bot_id": 10, "participant_number": 1,
             "result": "win", "elo_change": 5, "last_synced": _now(),
+        })
+        upsert(session, MatchParticipation, {
+            "id": 101, "match_id": 1, "bot_id": 20, "participant_number": 2,
+            "result": "loss", "elo_change": -5, "last_synced": _now(),
         })
         session.commit()
 
