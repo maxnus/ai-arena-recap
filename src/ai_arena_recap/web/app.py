@@ -5,6 +5,7 @@ from pathlib import Path
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session, func, select
@@ -85,6 +86,15 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     app = FastAPI(title="AI Arena Recap", lifespan=lifespan)
+    app.add_middleware(
+        TrustedHostMiddleware,
+        allowed_hosts=[
+            "aiarenarecap.com",
+            "www.aiarenarecap.com",
+            "127.0.0.1",
+            "localhost",
+        ],
+    )
     app.mount("/static", StaticFiles(directory=str(WEB_DIR / "static")), name="static")
 
     app.include_router(ladder.router)

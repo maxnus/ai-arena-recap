@@ -1,6 +1,11 @@
-# Replace yourdomain.com with the real hostname before reloading Caddy.
 # Caddy auto-provisions HTTPS via Let's Encrypt on first start.
-yourdomain.com {
+# Cloudflare DNS records for these names must be set to "DNS only" (gray
+# cloud), not proxied — otherwise the HTTP-01 challenge can't reach Caddy.
+aiarenarecap.com {
     encode zstd gzip
     reverse_proxy 127.0.0.1:8000
+}
+
+www.aiarenarecap.com {
+    redir https://aiarenarecap.com{uri} permanent
 }
