@@ -68,6 +68,26 @@ class TestLadderJson:
         data = client.get("/api/ladder.json").json()["data"]
         assert [row["name"] for row in data] == ["Alpha"]
 
+    def test_division_zero_routed_to_awaiting(self, client, session):
+        """Active bots with division 0 (or null) are awaiting placement,
+        not yet ranked — they go into a separate list and don't get a rank
+        in the main standings."""
+        _seed_two_bot_ladder(session)
+        upsert(session, Bot, {"id": 3, "name": "Gamma", "plays_race": "P", "type": "python", "last_synced": _now()})
+        upsert(session, CompetitionParticipation, {
+            "id": 3, "competition_id": settings.competition_id, "bot_id": 3,
+            "elo": None, "highest_elo": None, "division_num": 0, "active": True,
+            "match_count": 0, "win_count": 0, "loss_count": 0, "tie_count": 0, "crash_count": 0,
+            "win_perc": None, "loss_perc": None, "last_synced": _now(),
+        })
+        session.commit()
+
+        body = client.get("/api/ladder.json").json()
+        assert [row["name"] for row in body["data"]] == ["Alpha", "Beta"]
+        assert [row["rank"] for row in body["data"]] == [1, 2]
+        assert [row["name"] for row in body["awaiting"]] == ["Gamma"]
+        assert "rank" not in body["awaiting"][0]
+
 
 class TestBotMatchesJson:
     def _seed_match(self, session, *, match_id: int, bot_id: int, opp_id: int, result: str, elo_change: int):

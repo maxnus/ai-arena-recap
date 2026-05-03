@@ -6,10 +6,16 @@
   <div id="ladder-toolbar" class="grid-toolbar"></div>
   <div id="ladder-grid" class="ag-theme-quartz-dark grid-host"></div>
 
+  <section id="awaiting-section" hidden>
+    <h2>Awaiting Entry</h2>
+    <p class="hint">Bots accepted into the competition but not yet placed into a division.</p>
+    <div id="awaiting-grid" class="ag-theme-quartz-dark grid-host"></div>
+  </section>
+
   <script>
     document.addEventListener("DOMContentLoaded", async () => {
       const res = await fetch("/api/ladder.json");
-      const { data } = await res.json();
+      const { data, awaiting } = await res.json();
 
       const gridOptions = {
         rowData: data,
@@ -130,6 +136,48 @@
       };
 
       agGrid.createGrid(document.getElementById("ladder-grid"), gridOptions);
+
+      if (awaiting && awaiting.length) {
+        document.getElementById("awaiting-section").hidden = false;
+        agGrid.createGrid(document.getElementById("awaiting-grid"), {
+          rowData: awaiting,
+          domLayout: "autoHeight",
+          autoSizeStrategy: { type: "fitGridWidth", defaultMinWidth: 60 },
+          defaultColDef: { sortable: true, resizable: true, filter: true, minWidth: 60 },
+          columnDefs: [
+            {
+              headerName: "Bot", field: "name", width: 200, filter: "agTextColumnFilter",
+              cellRenderer: (p) => `<a href="/bots/${p.data.bot_id}">${escapeHtml(p.data.name)}</a>`,
+            },
+            {
+              headerName: "Race", field: "race", width: 130, filter: "agTextColumnFilter",
+              cellRenderer: (p) => {
+                const code = p.value;
+                if (!code) return "";
+                const name = RACE_NAMES[code] || code;
+                return `${raceBadge(code)} ${escapeHtml(name)}`;
+              },
+            },
+            { headerName: "Author", field: "author", width: 160, filter: "agTextColumnFilter" },
+            { headerName: "Type", field: "type", width: 130 },
+          ],
+          rowHeight: 32,
+          headerHeight: 36,
+          animateRows: false,
+          rowClass: "row-clickable",
+          onCellClicked: (event) => {
+            if (event.event.target.closest("a")) return;
+            const botId = event.data && event.data.bot_id;
+            if (!botId) return;
+            const url = `/bots/${botId}`;
+            if (event.event.ctrlKey || event.event.metaKey || event.event.button === 1) {
+              window.open(url, "_blank");
+            } else {
+              window.location.href = url;
+            }
+          },
+        });
+      }
     });
   </script>
 {% endblock %}

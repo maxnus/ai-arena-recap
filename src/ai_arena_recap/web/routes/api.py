@@ -56,10 +56,24 @@ def ladder_json(session: Session = Depends(get_session)) -> dict[str, Any]:
         bot_id: float(steps) / STEPS_PER_SECOND for bot_id, _, steps in stat_rows if steps is not None
     }
 
-    data = []
-    for i, (cp, bot) in enumerate(rows, start=1):
+    data: list[dict[str, Any]] = []
+    awaiting: list[dict[str, Any]] = []
+    for cp, bot in rows:
+        # division_num is 0 (or null) for bots accepted into the competition
+        # but not yet placed into a division — they have no meaningful ELO,
+        # match count, or rank. Surface them in a separate "Awaiting Entry"
+        # list so they don't pollute the live standings.
+        if not cp.division_num:
+            awaiting.append({
+                "bot_id": bot.id,
+                "name": bot.name,
+                "author": bot.user_name,
+                "race": bot.plays_race,
+                "type": bot.type,
+            })
+            continue
         data.append({
-            "rank": i,
+            "rank": len(data) + 1,
             "bot_id": bot.id,
             "name": bot.name,
             "author": bot.user_name,
@@ -78,7 +92,7 @@ def ladder_json(session: Session = Depends(get_session)) -> dict[str, Any]:
             "avg_duration_s": avg_duration_by_bot.get(bot.id),
         })
 
-    return {"data": data}
+    return {"data": data, "awaiting": awaiting}
 
 
 @router.get("/bots/search.json")
