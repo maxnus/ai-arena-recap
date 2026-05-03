@@ -88,6 +88,7 @@
   {% endif %}
 
   <h2>Recent matchups <span class="hint-inline">(last {{ matchup_window_days }} days, &ge;{{ matchup_min_games }} games)</span></h2>
+  <div id="matchups-toolbar" class="grid-toolbar"></div>
   <div id="matchups-grid" class="ag-theme-quartz-dark grid-host"></div>
   <p id="matchups-empty" class="empty" hidden>No opponents with at least {{ matchup_min_games }} games in the last {{ matchup_window_days }} days.</p>
 
@@ -108,6 +109,7 @@
       const matchupsBody = matchupsRes.ok ? await matchupsRes.json() : { data: [] };
       if (!matchupsBody.data.length) {
         document.getElementById("matchups-grid").style.display = "none";
+        document.getElementById("matchups-toolbar").style.display = "none";
         document.getElementById("matchups-empty").hidden = false;
       } else {
         agGrid.createGrid(document.getElementById("matchups-grid"), {
@@ -150,6 +152,7 @@
             {
               headerName: "History",
               field: "history",
+              colId: "history",
               width: 200,
               sortable: false,
               filter: false,
@@ -198,6 +201,7 @@
             {
               headerName: "ΔELO Trend",
               field: "history",
+              colId: "elo_trend",
               width: 120,
               type: "numericColumn",
               headerTooltip: "Linear regression slope of ELO change per game over time, per 30 days",
@@ -244,6 +248,9 @@
             const url = `/bots/${oppId}`;
             if (e.event.ctrlKey || e.event.metaKey || e.event.button === 1) window.open(url, "_blank");
             else window.location.href = url;
+          },
+          onGridReady: (params) => {
+            buildColumnTogglePanel(params.api, "bot-matchups-cols-v1", document.getElementById("matchups-toolbar"));
           },
         });
       }
