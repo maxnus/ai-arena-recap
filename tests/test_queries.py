@@ -15,8 +15,13 @@ from ai_arena_recap.models import (
 from ai_arena_recap.sync.common import upsert
 from ai_arena_recap.web.queries import (
     MATCHUP_MIN_GAMES,
+    bot_avg_match_stats,
+    bot_current_race_elo,
+    bot_race_elo_history,
     bot_rank_history,
+    competition_round_ends,
     recent_matchups,
+    round_position_for_timestamp,
     winrate_by_race,
 )
 
@@ -233,3 +238,243 @@ class TestBotRankHistory:
 
         beta_history = bot_rank_history(session, 2)
         assert [(r["round_number"], r["rank"]) for r in beta_history] == [(1, 2), (2, 1)]
+
+
+class TestBotAvgMatchStats:
+    def test_returns_none_when_bot_has_no_matches(self, session):
+        _seed_competition(session)
+        _seed_bot(session, 1, "Alpha", "T")
+        session.commit()
+
+        stats = bot_avg_match_stats(session, 1)
+        assert stats == {"avg_duration_s": None, "avg_step_time_s": None}
+
+    def test_averages_steps_and_step_time_for_wlt_only(self, session):
+        _seed_competition(session)
+        _seed_bot(session, 1, "Alpha", "T")
+        _seed_bot(session, 2, "Beta", "Z")
+
+        # Two W/L/T matches with steps 11200 (=500s) and 22400 (=1000s) → avg 750s.
+        _seed_match(session, match_id=10, bot_a=1, bot_b=2,
+                    a_result="win", started=NOW - timedelta(days=1), game_steps=11200)
+        _seed_match(session, match_id=11, bot_a=1, bot_b=2,
+                    a_result="loss", started=NOW - timedelta(days=2), game_steps=22400)
+        # Set distinct avg_step_time on each participation.
+        for mp_id, t in [(100, 0.010), (110, 0.020)]:
+            mp = session.get(MatchParticipation, mp_id)
+            mp.avg_step_time = t
+            session.add(mp)
+        # An "error" match with no W/L/T result on the bot's side — should be excluded.
+        upsert(session, Match, {
+            "id": 12, "round_id": 1, "map_id": 1,
+            "started": NOW, "result_created": NOW, "result_game_steps": 99999,
+            "last_synced": NOW,
+        })
+        upsert(session, MatchParticipation, {
+            "id": 120, "match_id": 12, "bot_id": 1, "participant_number": 1,
+            "result": None, "avg_step_time": 9.999, "last_synced": NOW,
+        })
+        session.commit()
+
+        stats = bot_avg_match_stats(session, 1)
+        assert stats["avg_duration_s"] == pytest.approx((11200 + 22400) / 2 / 22.4)  # 750s
+        assert stats["avg_step_time_s"] == pytest.approx(0.015)
+
+
+class TestCompetitionRoundEnds:
+    def test_returns_iso_dates_for_complete_rounds_only(self, session):
+        upsert(session, Competition, {"id": settings.competition_id, "name": "T", "last_synced": NOW})
+        upsert(session, Round, {
+            "id": 1, "number": 1, "competition_id": settings.competition_id,
+            "complete": True, "finished": datetime(2026, 1, 5, tzinfo=timezone.utc),
+            "last_synced": NOW,
+        })
+        upsert(session, Round, {
+            "id": 2, "number": 2, "competition_id": settings.competition_id,
+            "complete": True, "finished": datetime(2026, 1, 12, tzinfo=timezone.utc),
+            "last_synced": NOW,
+        })
+        # Incomplete round — must not appear.
+        upsert(session, Round, {
+            "id": 3, "number": 3, "competition_id": settings.competition_id,
+            "complete": False, "finished": datetime(2026, 1, 19, tzinfo=timezone.utc),
+            "last_synced": NOW,
+        })
+        # Complete but no finished timestamp — must not appear.
+        upsert(session, Round, {
+            "id": 4, "number": 4, "competition_id": settings.competition_id,
+            "complete": True, "finished": None, "last_synced": NOW,
+        })
+        session.commit()
+
+        ends = competition_round_ends(session)
+        assert ends == {1: "2026-01-05", 2: "2026-01-12"}
+
+
+class TestRoundPositionForTimestamp:
+    def _seed_three_rounds(self, session):
+        upsert(session, Competition, {"id": settings.competition_id, "name": "T", "last_synced": NOW})
+        for n, day in [(1, 5), (2, 12), (3, 19)]:
+            upsert(session, Round, {
+                "id": n, "number": n, "competition_id": settings.competition_id,
+                "complete": True,
+                "finished": datetime(2026, 1, day, tzinfo=timezone.utc),
+                "last_synced": NOW,
+            })
+        session.commit()
+
+    def test_none_input_returns_none(self, session):
+        self._seed_three_rounds(session)
+        assert round_position_for_timestamp(session, None) is None
+
+    def test_no_completed_rounds_returns_none(self, session):
+        upsert(session, Competition, {"id": settings.competition_id, "name": "T", "last_synced": NOW})
+        session.commit()
+        assert round_position_for_timestamp(session, datetime(2026, 1, 10, tzinfo=timezone.utc)) is None
+
+    def test_before_first_round_end_returns_none(self, session):
+        self._seed_three_rounds(session)
+        assert round_position_for_timestamp(session, datetime(2026, 1, 1, tzinfo=timezone.utc)) is None
+
+    def test_at_round_end_returns_round_number(self, session):
+        self._seed_three_rounds(session)
+        assert round_position_for_timestamp(session, datetime(2026, 1, 5, tzinfo=timezone.utc)) == 1.0
+        assert round_position_for_timestamp(session, datetime(2026, 1, 12, tzinfo=timezone.utc)) == 2.0
+
+    def test_interpolates_between_rounds(self, session):
+        self._seed_three_rounds(session)
+        # Halfway between round 1 (Jan 5) and round 2 (Jan 12) → position 1.5.
+        midway = datetime(2026, 1, 8, 12, 0, 0, tzinfo=timezone.utc)
+        assert round_position_for_timestamp(session, midway) == pytest.approx(1.5)
+
+    def test_after_last_round_pins_to_last(self, session):
+        self._seed_three_rounds(session)
+        future = datetime(2026, 2, 1, tzinfo=timezone.utc)
+        assert round_position_for_timestamp(session, future) == 3.0
+
+    def test_naive_input_treated_as_utc(self, session):
+        self._seed_three_rounds(session)
+        naive = datetime(2026, 1, 8, 12, 0, 0)  # no tzinfo
+        assert round_position_for_timestamp(session, naive) == pytest.approx(1.5)
+
+
+class TestBotRaceEloHistory:
+    def test_empty_when_bot_has_no_matches(self, session):
+        _seed_competition(session)
+        _seed_bot(session, 1, "Alpha", "T")
+        session.commit()
+        assert bot_race_elo_history(session, 1) == []
+
+    def test_single_win_against_equal_elo_opponent_increases_rating(self, session):
+        _seed_competition(session)
+        _seed_bot(session, 1, "Alpha", "T")
+        _seed_bot(session, 2, "Beta", "Z")
+        # Single win, opp_elo == bot starting_elo == 1500. Expected = 0.5,
+        # delta = K*(1-0.5) = 8 → rating becomes 1508.
+        _seed_match(session, match_id=10, bot_a=1, bot_b=2,
+                    a_result="win", started=NOW - timedelta(days=1))
+        session.commit()
+
+        history = bot_race_elo_history(session, 1)
+        # One snapshot, race Z, rating 1508.
+        assert history == [{"round_number": 1, "race": "Z", "rating": 1508.0}]
+
+    def test_emits_one_snapshot_per_round_for_all_seen_races(self, session):
+        _seed_competition(session)
+        upsert(session, Round, {
+            "id": 2, "number": 2, "competition_id": settings.competition_id,
+            "complete": True, "last_synced": NOW,
+        })
+        _seed_bot(session, 1, "Alpha", "T")
+        _seed_bot(session, 2, "Z1", "Z")
+        _seed_bot(session, 3, "P1", "P")
+
+        # Round 1: bot 1 plays Z (win) and P (loss).
+        _seed_match(session, match_id=10, bot_a=1, bot_b=2,
+                    a_result="win", started=NOW - timedelta(days=10))
+        upsert(session, Match, {
+            "id": 11, "round_id": 1, "map_id": 1,
+            "started": NOW - timedelta(days=9), "result_created": NOW - timedelta(days=9),
+            "last_synced": NOW,
+        })
+        upsert(session, MatchParticipation, {
+            "id": 110, "match_id": 11, "bot_id": 1, "participant_number": 1,
+            "starting_elo": 1500, "result": "loss", "last_synced": NOW,
+        })
+        upsert(session, MatchParticipation, {
+            "id": 111, "match_id": 11, "bot_id": 3, "participant_number": 2,
+            "starting_elo": 1500, "result": "win", "last_synced": NOW,
+        })
+        # Round 2: bot 1 only plays Z.
+        upsert(session, Match, {
+            "id": 12, "round_id": 2, "map_id": 1,
+            "started": NOW - timedelta(days=2), "result_created": NOW - timedelta(days=2),
+            "last_synced": NOW,
+        })
+        upsert(session, MatchParticipation, {
+            "id": 120, "match_id": 12, "bot_id": 1, "participant_number": 1,
+            "starting_elo": 1500, "result": "win", "last_synced": NOW,
+        })
+        upsert(session, MatchParticipation, {
+            "id": 121, "match_id": 12, "bot_id": 2, "participant_number": 2,
+            "starting_elo": 1500, "result": "loss", "last_synced": NOW,
+        })
+        session.commit()
+
+        history = bot_race_elo_history(session, 1)
+        # Both rounds emit snapshots. After round 1 we expect Z and P; after
+        # round 2 we still expect both (P unchanged since not played).
+        rounds = sorted({h["round_number"] for h in history})
+        assert rounds == [1, 2]
+        races_round_1 = sorted(h["race"] for h in history if h["round_number"] == 1)
+        races_round_2 = sorted(h["race"] for h in history if h["round_number"] == 2)
+        assert races_round_1 == ["P", "Z"]
+        assert races_round_2 == ["P", "Z"]
+        # P rating in round 2 unchanged from round 1 (no further P games).
+        p1 = next(h["rating"] for h in history if h["round_number"] == 1 and h["race"] == "P")
+        p2 = next(h["rating"] for h in history if h["round_number"] == 2 and h["race"] == "P")
+        assert p1 == p2
+
+    def test_skips_matches_in_incomplete_rounds(self, session):
+        _seed_competition(session)
+        upsert(session, Round, {
+            "id": 99, "number": 99, "competition_id": settings.competition_id,
+            "complete": False, "last_synced": NOW,
+        })
+        _seed_bot(session, 1, "Alpha", "T")
+        _seed_bot(session, 2, "Beta", "Z")
+        upsert(session, Match, {
+            "id": 50, "round_id": 99, "map_id": 1,
+            "started": NOW, "result_created": NOW, "last_synced": NOW,
+        })
+        upsert(session, MatchParticipation, {
+            "id": 500, "match_id": 50, "bot_id": 1, "participant_number": 1,
+            "starting_elo": 1500, "result": "win", "last_synced": NOW,
+        })
+        upsert(session, MatchParticipation, {
+            "id": 501, "match_id": 50, "bot_id": 2, "participant_number": 2,
+            "starting_elo": 1500, "result": "loss", "last_synced": NOW,
+        })
+        session.commit()
+
+        assert bot_race_elo_history(session, 1) == []
+
+
+class TestBotCurrentRaceElo:
+    def test_returns_latest_round_snapshot_only(self, session):
+        _seed_competition(session)
+        _seed_bot(session, 1, "Alpha", "T")
+        _seed_bot(session, 2, "Beta", "Z")
+        _seed_match(session, match_id=10, bot_a=1, bot_b=2,
+                    a_result="win", started=NOW - timedelta(days=1))
+        session.commit()
+
+        current = bot_current_race_elo(session, 1)
+        assert set(current.keys()) == {"Z"}
+        assert current["Z"] == 1508.0
+
+    def test_returns_empty_when_no_history(self, session):
+        _seed_competition(session)
+        _seed_bot(session, 1, "Alpha", "T")
+        session.commit()
+        assert bot_current_race_elo(session, 1) == {}

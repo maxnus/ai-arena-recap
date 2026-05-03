@@ -13,6 +13,8 @@ from ai_arena_recap.web.deps import get_session
 from ai_arena_recap.web.queries import (
     MATCHUP_MIN_GAMES,
     MATCHUP_WINDOW_DAYS,
+    STEPS_PER_SECOND,
+    WLT_RESULTS,
     bot_race_elo_history,
     bot_rank_history,
     recent_matchups,
@@ -46,12 +48,12 @@ def ladder_json(session: Session = Depends(get_session)) -> dict[str, Any]:
         .join(Match, Match.id == MatchParticipation.match_id)
         .join(Round, Round.id == Match.round_id)
         .where(Round.competition_id == settings.competition_id)
-        .where(MatchParticipation.result.in_(("win", "loss", "tie")))
+        .where(MatchParticipation.result.in_(WLT_RESULTS))
         .group_by(MatchParticipation.bot_id)
     ).all()
     avg_step_by_bot = {bot_id: float(s) for bot_id, s, _ in stat_rows if s is not None}
     avg_duration_by_bot = {
-        bot_id: float(steps) / 22.4 for bot_id, _, steps in stat_rows if steps is not None
+        bot_id: float(steps) / STEPS_PER_SECOND for bot_id, _, steps in stat_rows if steps is not None
     }
 
     data = []

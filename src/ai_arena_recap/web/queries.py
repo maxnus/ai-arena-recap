@@ -20,7 +20,12 @@ MATCHUP_MIN_GAMES = 10
 # K-factor for the per-race ELO simulation.
 RACE_ELO_K = 16
 
-_RESULTS = ("win", "loss", "tie")
+# StarCraft 2 game-loop rate: 22.4 ticks per real second on the standard speed
+# the ladder runs at.
+STEPS_PER_SECOND = 22.4
+
+# Result values that count as a played game (excludes errors / crashes).
+WLT_RESULTS = ("win", "loss", "tie")
 
 
 def _wlt_aggregates():
@@ -60,7 +65,7 @@ def winrate_by_race(session: Session, bot_id: int) -> dict[str, dict]:
         .join(OppBot, OppBot.id == Opp.bot_id)
         .where(MatchParticipation.bot_id == bot_id)
         .where(Round.competition_id == settings.competition_id)
-        .where(MatchParticipation.result.in_(_RESULTS))
+        .where(MatchParticipation.result.in_(WLT_RESULTS))
         .group_by(OppBot.plays_race)
     ).all()
 
@@ -117,7 +122,7 @@ def recent_matchups(session: Session, bot_id: int) -> list[dict]:
         .join(OppBot, OppBot.id == Opp.bot_id)
         .where(MatchParticipation.bot_id == bot_id)
         .where(Match.started >= cutoff)
-        .where(MatchParticipation.result.in_(_RESULTS))
+        .where(MatchParticipation.result.in_(WLT_RESULTS))
         .group_by(OppBot.id, OppBot.name, OppBot.plays_race)
         .having(matches >= MATCHUP_MIN_GAMES)
         .order_by(matches.desc())
@@ -145,8 +150,8 @@ def recent_matchups(session: Session, bot_id: int) -> list[dict]:
             "ties": t,
             "win_rate": _win_rate(w, t, m) or 0.0,
             "avg_change": float(ec) if ec is not None else None,
-            "avg_duration_s": (float(st) / 22.4) if st is not None else None,
-            "std_duration_s": (float(vs) ** 0.5 / 22.4) if vs is not None and vs > 0 else None,
+            "avg_duration_s": (float(st) / STEPS_PER_SECOND) if st is not None else None,
+            "std_duration_s": (float(vs) ** 0.5 / STEPS_PER_SECOND) if vs is not None and vs > 0 else None,
             "trend_pp": trend_pp,
         })
     if not matchups:
@@ -160,7 +165,7 @@ def recent_matchups(session: Session, bot_id: int) -> list[dict]:
         .join(Opp2, (Opp2.match_id == Match.id) & (Opp2.bot_id != bot_id))
         .where(MatchParticipation.bot_id == bot_id)
         .where(Match.started >= cutoff)
-        .where(MatchParticipation.result.in_(_RESULTS))
+        .where(MatchParticipation.result.in_(WLT_RESULTS))
         .where(Opp2.bot_id.in_(opp_ids))
         .order_by(Match.started)
     ).all()
@@ -237,11 +242,11 @@ def bot_avg_match_stats(session: Session, bot_id: int) -> dict:
         .join(Round, Round.id == Match.round_id)
         .where(MatchParticipation.bot_id == bot_id)
         .where(Round.competition_id == settings.competition_id)
-        .where(MatchParticipation.result.in_(_RESULTS))
+        .where(MatchParticipation.result.in_(WLT_RESULTS))
     ).one()
     avg_steps, avg_step_time = row
     return {
-        "avg_duration_s": (float(avg_steps) / 22.4) if avg_steps is not None else None,
+        "avg_duration_s": (float(avg_steps) / STEPS_PER_SECOND) if avg_steps is not None else None,
         "avg_step_time_s": float(avg_step_time) if avg_step_time is not None else None,
     }
 
@@ -266,8 +271,6 @@ def round_position_for_timestamp(session: Session, ts) -> float | None:
     the marker lands at the right place across rounds. Returns None if the
     timestamp can't be placed (no completed rounds, or ts predates the end
     of the very first round in the competition)."""
-    from datetime import timezone
-
     if ts is None:
         return None
     rows = session.exec(

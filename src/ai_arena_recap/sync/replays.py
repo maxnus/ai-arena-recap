@@ -62,14 +62,14 @@ async def _download_one(
     match_id: int,
     replay_dir: Path,
 ) -> bool:
+    tmp_path = replay_dir / f"{match_id}.SC2Replay.tmp"
+    final_path = replay_dir / f"{match_id}.SC2Replay"
     async with sem:
         try:
             data = await client.get_match(match_id)
             url = (data.get("result") or {}).get("replay_file")
             if not url:
                 return False
-            tmp_path = replay_dir / f"{match_id}.SC2Replay.tmp"
-            final_path = replay_dir / f"{match_id}.SC2Replay"
             async with http.stream("GET", url, follow_redirects=True) as resp:
                 resp.raise_for_status()
                 with open(tmp_path, "wb") as f:
@@ -79,7 +79,6 @@ async def _download_one(
             return True
         except Exception:
             log.warning("Failed to download replay for match %s", match_id, exc_info=True)
-            tmp_path = replay_dir / f"{match_id}.SC2Replay.tmp"
             tmp_path.unlink(missing_ok=True)
             return False
 
