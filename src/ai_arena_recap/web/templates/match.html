@@ -45,7 +45,13 @@
           <td>{{ mp.participant_number }}</td>
           <td><a href="/bots/{{ bot.id }}">{{ bot.name }}</a></td>
           <td>{{ race_icon(bot.plays_race) }}</td>
-          <td class="result-{{ mp.result or 'unknown' }}">{{ (mp.result or '?')|capitalize }}</td>
+          {% if mp.result %}
+            <td class="result-{{ mp.result }}">{{ mp.result|capitalize }}</td>
+          {% elif match.result_type == 'MatchCancelled' %}
+            <td class="result-cancelled">Cancelled</td>
+          {% else %}
+            <td class="result-unknown">?</td>
+          {% endif %}
           <td>{{ mp.result_cause or '' }}</td>
           <td class="num">{{ mp.starting_elo if mp.starting_elo is not none else '' }}</td>
           <td class="num">{{ mp.resultant_elo if mp.resultant_elo is not none else '' }}</td>
@@ -59,7 +65,11 @@
   </table>
 
   <p class="actions">
-    <a class="button" href="/matches/{{ match.id }}/replay">Download replay</a>
+    {% if match.result_type == 'MatchCancelled' %}
+      <span class="button button-disabled" aria-disabled="true" title="No replay available — match was cancelled">Download replay</span>
+    {% else %}
+      <a class="button" href="/matches/{{ match.id }}/replay">Download replay</a>
+    {% endif %}
     <a class="ext-link" href="https://aiarena.net/matches/{{ match.id }}/" target="_blank" rel="noopener">View on aiarena.net &rarr;</a>
   </p>
 
@@ -125,6 +135,7 @@
             cellRenderer: (p) => {
               const r = p.data;
               if (!r || !r.ended) return "";
+              if (r.result_type === "MatchCancelled") return "";
               const cls = downloadedReplays.has(r.match_id) ? "icon-button downloaded" : "icon-button";
               return `<a class="${cls}" data-match-id="${r.match_id}" href="/matches/${r.match_id}/replay" title="Download replay"><span class="glyph">${DOWNLOAD_ICON}</span></a>`;
             },

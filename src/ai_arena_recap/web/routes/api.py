@@ -103,6 +103,7 @@ def bot_matches_json(
             "opponent_race": opp_bot.plays_race if opp_bot else None,
             "result": mp.result,
             "result_cause": mp.result_cause,
+            "result_type": match.result_type,
             "starting_elo": mp.starting_elo,
             "resultant_elo": mp.resultant_elo,
             "elo_change": mp.elo_change,

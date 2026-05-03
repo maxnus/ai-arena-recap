@@ -95,9 +95,18 @@ const cellRenderers = {
     if (!r) return "";
     const result = r.result;
     const change = r.elo_change;
-    const label = result ? result.charAt(0).toUpperCase() + result.slice(1) : "?";
+    let label, cls;
+    if (result) {
+      label = result.charAt(0).toUpperCase() + result.slice(1);
+      cls = `result-${escapeHtml(result)}`;
+    } else if (r.result_type === "MatchCancelled") {
+      label = "Cancelled";
+      cls = "result-cancelled";
+    } else {
+      label = "?";
+      cls = "";
+    }
     const changePart = change == null ? "" : ` (${change > 0 ? "+" : ""}${change})`;
-    const cls = result ? `result-${escapeHtml(result)}` : "";
     return `<span class="${cls}">${escapeHtml(label)}${escapeHtml(changePart)}</span>`;
   },
   startedAt: (params) => formatStarted(params.value),

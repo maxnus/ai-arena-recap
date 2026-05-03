@@ -139,6 +139,7 @@ td.muted, .muted { color: var(--muted); }
 .result-loss { color: var(--red); }
 .result-tie { color: var(--yellow); }
 .result-crash { color: var(--red); font-style: italic; }
+.result-cancelled { color: var(--muted); font-style: italic; }
 
 dl.bot-meta-col, dl.match-meta {
   display: grid;
@@ -309,6 +310,13 @@ footer {
   text-decoration: none;
 }
 .button:hover { text-decoration: none; opacity: 0.9; }
+.button-disabled {
+  background: var(--muted);
+  color: var(--panel);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.button-disabled:hover { opacity: 0.6; }
 
 .icon-button {
   display: inline-flex;
