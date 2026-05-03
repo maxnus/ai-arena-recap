@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Ladder &middot; {{ competition.name if competition else 'AI Arena Recap' }}{% endblock %}
 {% block content %}
-  <h1>Ladder standings</h1>
+  <h1>{{ competition.name if competition else 'Ladder standings' }}</h1>
   <p class="hint">Click any column header to sort (Shift-click to multi-sort). Click the ☰ icon on a header for filter / pin / autosize. Use the <strong>Columns</strong> button below to show / hide columns.</p>
   <div id="ladder-toolbar" class="grid-toolbar"></div>
   <div id="ladder-grid" class="ag-theme-quartz-dark grid-host"></div>
@@ -31,16 +31,16 @@
           numericColumn: { cellClass: "ag-right-aligned-cell", headerClass: "" },
         },
         columnDefs: [
-          { headerName: "#", field: "rank", width: 70, pinned: "left", filter: false, floatingFilter: false },
+          { headerName: "#", field: "rank", width: 40, minWidth: 40, pinned: "left", filter: false, floatingFilter: false },
           {
-            headerName: "Bot", field: "name", width: 200, minWidth: 160, filter: "agTextColumnFilter",
+            headerName: "Bot", field: "name", width: 150, minWidth: 120, filter: "agTextColumnFilter",
             cellRenderer: (p) => {
               const r = p.data;
               return `<a href="/bots/${r.bot_id}">${escapeHtml(r.name)}</a>`;
             },
           },
           {
-            headerName: "Race", field: "race", width: 150, filter: "agTextColumnFilter",
+            headerName: "Race", field: "race", width: 110, filter: "agTextColumnFilter",
             cellRenderer: (p) => {
               const code = p.value;
               if (!code) return "";
@@ -51,19 +51,39 @@
           { headerName: "Author", field: "author", width: 130, filter: "agTextColumnFilter" },
           { headerName: "Type", field: "type", width: 110 },
           {
-            headerName: "Division", field: "division", width: 80, type: "numericColumn",
+            headerName: "Division", field: "division", width: 90, type: "numericColumn",
             sort: "asc", sortIndex: 0,
           },
-          { headerName: "ELO", field: "elo", width: 70, type: "numericColumn", sort: "desc", sortIndex: 1 },
+          { headerName: "ELO", field: "elo", width: 85, type: "numericColumn", sort: "desc", sortIndex: 1 },
           { headerName: "Peak ELO", field: "highest_elo", width: 110, type: "numericColumn", hide: true },
-          { headerName: "Matches", field: "match_count", width: 110, type: "numericColumn" },
-          { headerName: "Wins", field: "win_count", width: 90, type: "numericColumn" },
-          { headerName: "Losses", field: "loss_count", width: 100, type: "numericColumn" },
-          { headerName: "T", field: "tie_count", width: 80, type: "numericColumn", hide: true },
-          { headerName: "Crash", field: "crash_count", width: 90, type: "numericColumn", hide: true },
+          { headerName: "Matches", field: "match_count", width: 90, type: "numericColumn" },
           {
-            headerName: "Win Rate", field: "win_perc", width: 110, type: "numericColumn",
-            valueFormatter: (p) => p.value == null ? "" : Math.round(p.value) + " %",
+            headerName: "W / L / T", field: "win_count", colId: "wlt", width: 140, type: "numericColumn",
+            headerTooltip: "Wins / Losses / Ties",
+            cellRenderer: (p) => `<span class="result-win">${p.data.win_count}</span> / <span class="result-loss">${p.data.loss_count}</span> / ${p.data.tie_count}`,
+            comparator: (a, b) => a - b,
+          },
+          { headerName: "Crashes", field: "crash_count", width: 100, type: "numericColumn", hide: true },
+          {
+            headerName: "Win Rate", field: "win_perc", width: 90, type: "numericColumn",
+            valueFormatter: (p) => p.value == null ? "" : Math.round(p.value) + " %",
+          },
+          {
+            headerName: "Avg step (ms)", field: "avg_step_time", width: 110, type: "numericColumn",
+            headerTooltip: "Average per-step time across the bot's matches in this competition (W/L/T only)",
+            valueFormatter: (p) => p.value == null ? "" : (p.value * 1000).toFixed(1),
+            cellClassRules: {
+              "step-1": (p) => p.value != null && p.value < 0.010,
+              "step-2": (p) => p.value != null && p.value >= 0.010 && p.value < 0.020,
+              "step-3": (p) => p.value != null && p.value >= 0.020 && p.value < 0.030,
+              "step-4": (p) => p.value != null && p.value >= 0.030 && p.value < 0.040,
+              "step-5": (p) => p.value != null && p.value >= 0.040,
+            },
+          },
+          {
+            headerName: "Avg duration", field: "avg_duration_s", width: 120, type: "numericColumn",
+            headerTooltip: "Average in-game duration across the bot's matches in this competition (W/L/T only)",
+            valueFormatter: (p) => formatDuration(p.value),
           },
         ],
         rowHeight: 32,
@@ -82,15 +102,27 @@
             window.location.href = url;
           }
         },
-        // First row of each division gets a separator line above it.
+        // First row of each division gets a separator line above it — but
+        // only while the table is grouped by division (primary sort is the
+        // Division column). Once the user sorts by another column most
+        // adjacent rows would belong to different divisions and the page
+        // would fill with separator lines.
         getRowClass: (params) => {
           if (!params.data) return undefined;
+          const sorted = params.api.getColumnState()
+            .filter((c) => c.sort)
+            .sort((a, b) => (a.sortIndex ?? 0) - (b.sortIndex ?? 0));
+          if (!sorted.length || sorted[0].colId !== "division") return undefined;
           const prevNode = params.api.getDisplayedRowAtIndex(params.node.rowIndex - 1);
           const prev = prevNode && prevNode.data;
           if (prev && prev.division !== params.data.division) {
             return "division-boundary";
           }
           return undefined;
+        },
+        onSortChanged: (params) => {
+          // getRowClass caches per row, so redraw to pick up new neighbors.
+          params.api.redrawRows();
         },
         onGridReady: (params) => {
           buildColumnTogglePanel(params.api, "ladder-cols-v1", document.getElementById("ladder-toolbar"));

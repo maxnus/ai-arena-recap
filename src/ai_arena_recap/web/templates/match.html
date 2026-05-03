@@ -8,16 +8,10 @@
     <dt>Map</dt><dd>{{ map.name if map else (match.map_id or '?') }}</dd>
     <dt>Started</dt><dd>{{ local_dt(match.started) if match.started else 'not started' }}</dd>
     <dt>Ended</dt><dd>{{ local_dt(match.result_created) if match.result_created else 'in progress / no result' }}</dd>
-    {% if match.started and match.result_created %}
-      {% set duration_s = (match.result_created - match.started).total_seconds() %}
-      <dt>Duration (real-time)</dt>
-      <dd>{{ '%d:%02d' % ((duration_s // 60), (duration_s % 60)) }}</dd>
-    {% endif %}
     {% if match.result_game_steps %}
       {% set ingame_duration_s = match.result_game_steps / 22.4 %}
-      <dt>Duration (in-game)</dt>
+      <dt>Duration</dt>
       <dd>{{ '%d:%02d' % ((ingame_duration_s // 60), (ingame_duration_s % 60)) }}</dd>
-      <dt>Game steps</dt><dd>{{ match.result_game_steps }} (22.4 steps/sec at Faster speed)</dd>
     {% endif %}
     {% if match.result_type %}
       <dt>Result</dt><dd>{{ match.result_type }}</dd>

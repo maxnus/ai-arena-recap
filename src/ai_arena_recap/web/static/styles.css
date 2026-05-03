@@ -505,6 +505,19 @@ footer {
   --ag-input-focus-border-color: var(--accent);
 }
 .ag-theme-quartz-dark .ag-cell a { color: var(--accent); }
+/* Remove the vertical separator AG Grid draws between the pinned-left
+ * (rank) column and the rest of the grid. Quartz puts the divider on the
+ * last pinned-left cell (border-right) plus a shadow on the container. */
+.ag-theme-quartz-dark .ag-pinned-left-header,
+.ag-theme-quartz-dark .ag-pinned-left-cols-container {
+  border-right: none !important;
+  box-shadow: none !important;
+}
+.ag-theme-quartz-dark .ag-cell.ag-cell-last-left-pinned:not(.ag-cell-range-right),
+.ag-theme-quartz-dark .ag-header-cell.ag-column-last-left-pinned,
+.ag-theme-quartz-dark .ag-header-cell.ag-header-cell-last-left-pinned {
+  border-right: none !important;
+}
 .ag-theme-quartz-dark .ag-row.row-clickable { cursor: pointer; }
 /* Hide AG Grid's small sort-priority numbers (1, 2) shown for multi-sort. */
 .ag-theme-quartz-dark .ag-sort-order { display: none; }

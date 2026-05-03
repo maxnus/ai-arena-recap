@@ -33,6 +33,27 @@ def ladder_json(session: Session = Depends(get_session)) -> dict[str, Any]:
             CompetitionParticipation.elo.desc().nullslast(),
         )
     ).all()
+
+    # Per-bot avg step time and avg in-game duration across the current
+    # competition. Restricted to matches with a recorded W/L/T result —
+    # excludes errors / crashes that skew the averages.
+    stat_rows = session.exec(
+        select(
+            MatchParticipation.bot_id,
+            func.avg(MatchParticipation.avg_step_time),
+            func.avg(Match.result_game_steps),
+        )
+        .join(Match, Match.id == MatchParticipation.match_id)
+        .join(Round, Round.id == Match.round_id)
+        .where(Round.competition_id == settings.competition_id)
+        .where(MatchParticipation.result.in_(("win", "loss", "tie")))
+        .group_by(MatchParticipation.bot_id)
+    ).all()
+    avg_step_by_bot = {bot_id: float(s) for bot_id, s, _ in stat_rows if s is not None}
+    avg_duration_by_bot = {
+        bot_id: float(steps) / 22.4 for bot_id, _, steps in stat_rows if steps is not None
+    }
+
     data = []
     for i, (cp, bot) in enumerate(rows, start=1):
         data.append({
@@ -51,6 +72,8 @@ def ladder_json(session: Session = Depends(get_session)) -> dict[str, Any]:
             "tie_count": cp.tie_count,
             "crash_count": cp.crash_count,
             "win_perc": round(cp.win_perc, 2) if cp.win_perc is not None else None,
+            "avg_step_time": avg_step_by_bot.get(bot.id),
+            "avg_duration_s": avg_duration_by_bot.get(bot.id),
         })
 
     return {"data": data}
