@@ -1,0 +1,17 @@
+[Unit]
+Description=AI Arena Recap (FastAPI + sync scheduler)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=aiarena
+Group=aiarena
+WorkingDirectory=/opt/ai-arena-recap
+EnvironmentFile=/opt/ai-arena-recap/.env
+ExecStart=/home/aiarena/.local/bin/uv run --frozen uvicorn ai_arena_recap.web.app:app --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

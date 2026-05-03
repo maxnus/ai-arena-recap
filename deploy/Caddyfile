@@ -1,0 +1,6 @@
+# Replace yourdomain.com with the real hostname before reloading Caddy.
+# Caddy auto-provisions HTTPS via Let's Encrypt on first start.
+yourdomain.com {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:8000
+}
