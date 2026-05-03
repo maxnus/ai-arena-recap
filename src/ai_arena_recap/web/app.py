@@ -52,7 +52,6 @@ async def lifespan(app: FastAPI):
         max_instances=1,
         coalesce=True,           # if many fires were missed (e.g. system sleep), run once
         misfire_grace_time=None, # ...no matter how late — default 1s would drop them
-        next_run_time=None,
     )
     if settings.replay_cache_enabled:
         scheduler.add_job(
@@ -63,7 +62,6 @@ async def lifespan(app: FastAPI):
             max_instances=1,
             coalesce=True,
             misfire_grace_time=None,
-            next_run_time=None,
         )
     scheduler.start()
 
