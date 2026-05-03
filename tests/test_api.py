@@ -202,6 +202,81 @@ class TestBotMatchupsJson:
         assert body["min_games"] == 10
 
 
+class TestBotSearchJson:
+    def _seed_bot(self, session, *, bot_id, name, race="T", author=None, active=None, elo=None, highest_elo=None):
+        upsert(session, Bot, {
+            "id": bot_id, "name": name, "plays_race": race, "user_name": author,
+            "type": "python", "last_synced": _now(),
+        })
+        if active is not None:
+            upsert(session, Competition, {
+                "id": settings.competition_id, "name": "T", "last_synced": _now(),
+            })
+            upsert(session, CompetitionParticipation, {
+                "id": bot_id, "competition_id": settings.competition_id, "bot_id": bot_id,
+                "elo": elo, "highest_elo": highest_elo, "active": active,
+                "last_synced": _now(),
+            })
+
+    def test_empty_query_returns_no_data(self, client, session):
+        self._seed_bot(session, bot_id=1, name="Alpha", active=True, elo=1500)
+        session.commit()
+        body = client.get("/api/bots/search.json?q=").json()
+        assert body == {"data": []}
+
+    def test_substring_match_case_insensitive(self, client, session):
+        self._seed_bot(session, bot_id=1, name="MyCoolBot", active=True, elo=1500)
+        self._seed_bot(session, bot_id=2, name="OtherBot", active=True, elo=1400)
+        session.commit()
+        names = [r["name"] for r in client.get("/api/bots/search.json?q=cool").json()["data"]]
+        assert names == ["MyCoolBot"]
+        names = [r["name"] for r in client.get("/api/bots/search.json?q=COOL").json()["data"]]
+        assert names == ["MyCoolBot"]
+
+    def test_includes_inactive_bots(self, client, session):
+        self._seed_bot(session, bot_id=1, name="ActiveBot", active=True, elo=1600)
+        self._seed_bot(session, bot_id=2, name="InactiveBot", active=False, elo=None, highest_elo=1900)
+        self._seed_bot(session, bot_id=3, name="OffLadderBot")  # no participation row at all
+        session.commit()
+        body = client.get("/api/bots/search.json?q=bot").json()
+        by_name = {r["name"]: r for r in body["data"]}
+        assert by_name["ActiveBot"]["active"] is True
+        assert by_name["InactiveBot"]["active"] is False
+        assert by_name["InactiveBot"]["in_competition"] is True
+        assert by_name["InactiveBot"]["highest_elo"] == 1900
+        assert by_name["OffLadderBot"]["active"] is False
+        assert by_name["OffLadderBot"]["in_competition"] is False
+
+    def test_orders_exact_then_prefix_then_contains(self, client, session):
+        self._seed_bot(session, bot_id=1, name="ZooBot", active=True, elo=1500)         # contains
+        self._seed_bot(session, bot_id=2, name="bot", active=True, elo=1400)            # exact
+        self._seed_bot(session, bot_id=3, name="BotMaster", active=True, elo=1300)       # prefix
+        session.commit()
+        names = [r["name"] for r in client.get("/api/bots/search.json?q=bot").json()["data"]]
+        assert names == ["bot", "BotMaster", "ZooBot"]
+
+    def test_active_before_inactive_within_same_tier(self, client, session):
+        self._seed_bot(session, bot_id=1, name="OldBot", active=False, elo=None, highest_elo=2000)
+        self._seed_bot(session, bot_id=2, name="NewBot", active=True, elo=1500)
+        session.commit()
+        names = [r["name"] for r in client.get("/api/bots/search.json?q=bot").json()["data"]]
+        assert names == ["NewBot", "OldBot"]
+
+    def test_like_wildcards_in_query_are_escaped(self, client, session):
+        self._seed_bot(session, bot_id=1, name="Foo", active=True, elo=1500)
+        self._seed_bot(session, bot_id=2, name="F_oo", active=True, elo=1400)
+        session.commit()
+        names = [r["name"] for r in client.get("/api/bots/search.json?q=_").json()["data"]]
+        assert names == ["F_oo"]
+
+    def test_limit_caps_results(self, client, session):
+        for i in range(5):
+            self._seed_bot(session, bot_id=i + 1, name=f"Bot{i}", active=True, elo=1500 + i)
+        session.commit()
+        body = client.get("/api/bots/search.json?q=bot&limit=2").json()
+        assert len(body["data"]) == 2
+
+
 class TestBotRankHistoryJson:
     def test_404_for_unknown_bot(self, client, engine):
         r = client.get("/api/bots/9999/rank-history.json")

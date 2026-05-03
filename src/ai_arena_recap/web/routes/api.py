@@ -2,6 +2,7 @@ from datetime import timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import case
 from sqlalchemy.orm import aliased
 from sqlmodel import Session, func, select
 
@@ -52,6 +53,65 @@ def ladder_json(session: Session = Depends(get_session)) -> dict[str, Any]:
             "win_perc": round(cp.win_perc, 2) if cp.win_perc is not None else None,
         })
 
+    return {"data": data}
+
+
+@router.get("/bots/search.json")
+def bot_search_json(
+    q: str = Query("", max_length=100),
+    limit: int = Query(20, ge=1, le=100),
+    session: Session = Depends(get_session),
+) -> dict[str, Any]:
+    """Substring search over Bot.name. Includes bots no longer active on the
+    current ladder (LEFT JOIN on CompetitionParticipation). Ordered by match
+    quality (exact > prefix > contains), then active-before-inactive, then
+    ELO desc, then name."""
+    needle = q.strip().lower()
+    if not needle:
+        return {"data": []}
+
+    # Escape LIKE wildcards so a user typing % or _ doesn't get unexpected matches.
+    safe = needle.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    contains_pattern = f"%{safe}%"
+    prefix_pattern = f"{safe}%"
+
+    name_lower = func.lower(Bot.name)
+    tier = case(
+        (name_lower == needle, 0),
+        (name_lower.like(prefix_pattern, escape="\\"), 1),
+        else_=2,
+    )
+
+    rows = session.exec(
+        select(Bot, CompetitionParticipation)
+        .outerjoin(
+            CompetitionParticipation,
+            (CompetitionParticipation.bot_id == Bot.id)
+            & (CompetitionParticipation.competition_id == settings.competition_id),
+        )
+        .where(name_lower.like(contains_pattern, escape="\\"))
+        .order_by(
+            tier.asc(),
+            CompetitionParticipation.active.desc().nullslast(),
+            CompetitionParticipation.elo.desc().nullslast(),
+            Bot.name.asc(),
+        )
+        .limit(limit)
+    ).all()
+
+    data = []
+    for bot, cp in rows:
+        data.append({
+            "bot_id": bot.id,
+            "name": bot.name,
+            "race": bot.plays_race,
+            "author": bot.user_name,
+            "type": bot.type,
+            "active": bool(cp.active) if cp else False,
+            "in_competition": cp is not None,
+            "elo": cp.elo if cp else None,
+            "highest_elo": cp.highest_elo if cp else None,
+        })
     return {"data": data}
 
 

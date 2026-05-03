@@ -112,6 +112,140 @@ const cellRenderers = {
   startedAt: (params) => formatStarted(params.value),
 };
 
+// --- Bot search box (header) -----------------------------------------------
+// Debounced live search against /api/bots/search.json. Renders a dropdown
+// below the input; arrow keys + Enter navigate, Esc / outside-click close.
+function initBotSearch() {
+  const root = document.getElementById("bot-search");
+  if (!root) return;
+  const input = document.getElementById("bot-search-input");
+  const results = document.getElementById("bot-search-results");
+
+  let activeIndex = -1;
+  let currentItems = [];
+  let lastQuery = "";
+  let inflight = null;
+  let debounceTimer = null;
+
+  const closeResults = () => {
+    results.hidden = true;
+    results.innerHTML = "";
+    activeIndex = -1;
+    currentItems = [];
+  };
+
+  const renderResults = (items, query) => {
+    currentItems = items;
+    activeIndex = items.length ? 0 : -1;
+    if (!items.length) {
+      results.innerHTML = `<div class="bot-search-empty">No bots match “${escapeHtml(query)}”.</div>`;
+      results.hidden = false;
+      return;
+    }
+    const html = items.map((b, i) => {
+      const race = b.race ? raceBadge(b.race) : "";
+      const author = b.author ? `<span class="bot-search-author">by ${escapeHtml(b.author)}</span>` : "";
+      const status = b.active
+        ? ""
+        : `<span class="bot-search-status">${b.in_competition ? "inactive" : "off ladder"}</span>`;
+      const elo = b.elo != null
+        ? `<span class="bot-search-elo">${b.elo}</span>`
+        : (b.highest_elo != null ? `<span class="bot-search-elo bot-search-elo-old">${b.highest_elo}</span>` : "");
+      return `<a class="bot-search-row${i === 0 ? " active" : ""}" role="option" data-index="${i}" href="/bots/${b.bot_id}">
+        <span class="bot-search-race">${race}</span>
+        <span class="bot-search-name">${escapeHtml(b.name)}</span>
+        ${author}
+        ${status}
+        ${elo}
+      </a>`;
+    }).join("");
+    results.innerHTML = html;
+    results.hidden = false;
+  };
+
+  const setActive = (index) => {
+    const rows = results.querySelectorAll(".bot-search-row");
+    if (!rows.length) return;
+    activeIndex = (index + rows.length) % rows.length;
+    rows.forEach((el, i) => el.classList.toggle("active", i === activeIndex));
+    rows[activeIndex].scrollIntoView({ block: "nearest" });
+  };
+
+  const runSearch = async (query) => {
+    if (!query) {
+      closeResults();
+      return;
+    }
+    if (inflight) inflight.abort();
+    const ac = new AbortController();
+    inflight = ac;
+    try {
+      const res = await fetch(`/api/bots/search.json?q=${encodeURIComponent(query)}&limit=20`, { signal: ac.signal });
+      if (!res.ok) return;
+      const body = await res.json();
+      // Drop stale responses if the user kept typing.
+      if (query !== lastQuery) return;
+      renderResults(body.data || [], query);
+    } catch (err) {
+      if (err.name !== "AbortError") console.error(err);
+    } finally {
+      if (inflight === ac) inflight = null;
+    }
+  };
+
+  input.addEventListener("input", () => {
+    const q = input.value.trim();
+    lastQuery = q;
+    clearTimeout(debounceTimer);
+    if (!q) {
+      closeResults();
+      return;
+    }
+    debounceTimer = setTimeout(() => runSearch(q), 150);
+  });
+
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown") {
+      if (results.hidden) return;
+      e.preventDefault();
+      setActive(activeIndex + 1);
+    } else if (e.key === "ArrowUp") {
+      if (results.hidden) return;
+      e.preventDefault();
+      setActive(activeIndex - 1);
+    } else if (e.key === "Enter") {
+      if (results.hidden || activeIndex < 0 || !currentItems[activeIndex]) return;
+      e.preventDefault();
+      window.location.href = `/bots/${currentItems[activeIndex].bot_id}`;
+    } else if (e.key === "Escape") {
+      closeResults();
+      input.blur();
+    }
+  });
+
+  input.addEventListener("focus", () => {
+    if (input.value.trim() && currentItems.length) {
+      results.hidden = false;
+    }
+  });
+
+  document.addEventListener("click", (e) => {
+    if (!root.contains(e.target)) closeResults();
+  });
+
+  // "/" anywhere on the page focuses the search box (skip if typing in another input).
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "/") return;
+    const tag = (e.target && e.target.tagName) || "";
+    if (tag === "INPUT" || tag === "TEXTAREA" || (e.target && e.target.isContentEditable)) return;
+    e.preventDefault();
+    input.focus();
+    input.select();
+  });
+}
+
+document.addEventListener("DOMContentLoaded", initBotSearch);
+
 // Build a checkbox-style "Columns" toolbar above an AG Grid (since the
 // Columns Tool Panel is an Enterprise feature). Persists the full AG Grid
 // column state (visibility, width, order, pinning, sort) to localStorage

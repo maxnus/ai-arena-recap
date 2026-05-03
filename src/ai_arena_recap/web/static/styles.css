@@ -30,9 +30,98 @@ header {
   border-bottom: 1px solid var(--border);
   padding: 0.6rem 1.2rem;
 }
-nav { display: flex; align-items: baseline; gap: 1rem; }
+nav { display: flex; align-items: center; gap: 1rem; }
 .brand { font-weight: 600; color: var(--accent); text-decoration: none; font-size: 1.1rem; }
 .comp-name { color: var(--muted); }
+
+/* --- Bot search box (header) --- */
+.bot-search {
+  position: relative;
+  margin-left: auto;
+  width: min(360px, 40vw);
+}
+.bot-search-input {
+  width: 100%;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.35rem 0.6rem;
+  font: inherit;
+  font-size: 0.9rem;
+  outline: none;
+}
+.bot-search-input::placeholder { color: var(--muted); }
+.bot-search-input:focus { border-color: var(--accent); }
+
+.bot-search-results {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 50;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.bot-search-empty {
+  padding: 0.5rem 0.7rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-style: italic;
+}
+.bot-search-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.6rem;
+  color: var(--text);
+  text-decoration: none;
+  font-size: 0.9rem;
+  border-bottom: 1px solid var(--border);
+}
+.bot-search-row:last-child { border-bottom: none; }
+.bot-search-row:hover,
+.bot-search-row.active {
+  background: rgba(88, 166, 255, 0.12);
+  text-decoration: none;
+}
+.bot-search-row .bot-search-race { display: inline-flex; flex: none; }
+.bot-search-row .bot-search-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--accent);
+}
+.bot-search-author {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.bot-search-status {
+  flex: none;
+  color: var(--red);
+  font-size: 0.75rem;
+  font-style: italic;
+}
+.bot-search-elo {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  font-size: 0.8rem;
+  min-width: 3ch;
+  text-align: right;
+}
+.bot-search-elo-old { opacity: 0.6; }
 
 main {
   max-width: 1800px;
