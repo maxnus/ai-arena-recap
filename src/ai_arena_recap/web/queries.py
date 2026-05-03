@@ -10,7 +10,7 @@ from sqlalchemy.orm import aliased
 from sqlmodel import Session, select
 
 from ai_arena_recap.config import settings
-from ai_arena_recap.models import Bot, Match, MatchParticipation, Round
+from ai_arena_recap.models import Bot, CompetitionParticipation, Match, MatchParticipation, Round
 from ai_arena_recap.sync.common import utcnow
 
 # Per-opponent matchup window.
@@ -184,6 +184,25 @@ def recent_matchups(session: Session, bot_id: int) -> list[dict]:
 
     matchups.sort(key=lambda m: m["win_rate"], reverse=True)
     return matchups
+
+
+def bot_current_rank(session: Session, bot_id: int) -> int | None:
+    """Bot's position on the current active ladder, ordered the same way as
+    the ladder page (division asc, then ELO desc). Returns None if the bot
+    isn't an active participant of the current competition."""
+    rows = session.exec(
+        select(CompetitionParticipation.bot_id)
+        .where(CompetitionParticipation.competition_id == settings.competition_id)
+        .where(CompetitionParticipation.active == True)  # noqa: E712
+        .order_by(
+            CompetitionParticipation.division_num.asc().nullslast(),
+            CompetitionParticipation.elo.desc().nullslast(),
+        )
+    ).all()
+    for i, bid in enumerate(rows, start=1):
+        if bid == bot_id:
+            return i
+    return None
 
 
 def bot_rank_history(session: Session, bot_id: int) -> list[dict]:

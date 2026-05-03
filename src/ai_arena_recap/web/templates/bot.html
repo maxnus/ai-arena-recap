@@ -4,8 +4,26 @@
 {% block content %}
   <div class="bot-title-block">
     <span class="bot-title-icon">{{ race_icon(bot.plays_race) }}</span>
-    <h1 class="bot-title">{{ bot.name }}</h1>
-    {% if bot.user_name %}<p class="bot-subtitle">by {{ bot.user_name }}</p>{% endif %}
+    <div class="bot-title-text">
+      <h1 class="bot-title">{{ bot.name }}</h1>
+      {% if bot.user_name %}<p class="bot-subtitle">by {{ bot.user_name }}</p>{% endif %}
+    </div>
+    {% if cp %}
+    <div class="bot-key-stats">
+      <div class="bot-key-stat">
+        <span class="bot-key-stat-value">{% if cp.division_num is not none %}{{ cp.division_num }}{% else %}<span class="muted">–</span>{% endif %}</span>
+        <span class="bot-key-stat-label">Division</span>
+      </div>
+      <div class="bot-key-stat">
+        <span class="bot-key-stat-value">{% if cp.elo is not none %}{{ cp.elo }}{% else %}<span class="muted">–</span>{% endif %}</span>
+        <span class="bot-key-stat-label">ELO</span>
+      </div>
+      <div class="bot-key-stat">
+        <span class="bot-key-stat-value">{% if rank is not none %}#{{ rank }}{% else %}<span class="muted">–</span>{% endif %}</span>
+        <span class="bot-key-stat-label">Rank</span>
+      </div>
+    </div>
+    {% endif %}
   </div>
   <div class="bot-header">
     <div class="bot-meta">
