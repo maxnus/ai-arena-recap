@@ -157,6 +157,7 @@ function buildColumnTogglePanel(api, storageKey, container) {
       cb.checked = col.isVisible();
       cb.addEventListener("change", () => {
         api.setColumnsVisible([id], cb.checked);
+        api.sizeColumnsToFit();
       });
       label.appendChild(cb);
       label.appendChild(document.createTextNode(" " + def.headerName));
@@ -186,6 +187,7 @@ function buildColumnTogglePanel(api, storageKey, container) {
     e.stopPropagation();
     localStorage.removeItem(storageKey);
     api.resetColumnState();
+    api.sizeColumnsToFit();
     refreshCheckboxes();
   });
 
