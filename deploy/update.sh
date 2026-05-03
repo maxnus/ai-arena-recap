@@ -9,6 +9,7 @@ sudo -iu aiarena bash -c '
   git fetch origin main
   git reset --hard origin/main
   ~/.local/bin/uv sync --frozen
+  echo "Deployed: $(git rev-parse --short HEAD)"
 '
 
 systemctl restart ai-arena-recap
@@ -17,4 +18,4 @@ systemctl is-active --quiet ai-arena-recap || {
   exit 1
 }
 
-echo "Deploy complete: $(cd /opt/ai-arena-recap && git rev-parse --short HEAD)"
+echo "Service restarted."
