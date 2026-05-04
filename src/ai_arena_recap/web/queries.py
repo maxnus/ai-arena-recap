@@ -81,14 +81,19 @@ def winrate_by_race(session: Session, bot_id: int) -> dict[str, dict]:
     }
 
 
-def recent_matchups(session: Session, bot_id: int) -> list[dict]:
-    """Per-opponent record over the last MATCHUP_WINDOW_DAYS, filtered to
-    opponents we've played at least MATCHUP_MIN_GAMES times."""
-    cutoff = utcnow() - timedelta(days=MATCHUP_WINDOW_DAYS)
+def recent_matchups(
+    session: Session,
+    bot_id: int,
+    window_days: int = MATCHUP_WINDOW_DAYS,
+    min_games: int = MATCHUP_MIN_GAMES,
+) -> list[dict]:
+    """Per-opponent record over the last `window_days`, filtered to
+    opponents we've played at least `min_games` times."""
+    cutoff = utcnow() - timedelta(days=window_days)
     Opp = aliased(MatchParticipation)
     OppBot = aliased(Bot)
 
-    half_cutoff = utcnow() - timedelta(days=MATCHUP_WINDOW_DAYS / 2)
+    half_cutoff = utcnow() - timedelta(days=window_days / 2)
     is_recent = Match.started >= half_cutoff
 
     matches, wins, losses, ties = _wlt_aggregates()
@@ -124,7 +129,7 @@ def recent_matchups(session: Session, bot_id: int) -> list[dict]:
         .where(Match.started >= cutoff)
         .where(MatchParticipation.result.in_(WLT_RESULTS))
         .group_by(OppBot.id, OppBot.name, OppBot.plays_race)
-        .having(matches >= MATCHUP_MIN_GAMES)
+        .having(matches >= min_games)
         .order_by(matches.desc())
     ).all()
 
@@ -171,7 +176,7 @@ def recent_matchups(session: Session, bot_id: int) -> list[dict]:
     ).all()
 
     abbrev = {"win": "w", "loss": "l", "tie": "t"}
-    window_seconds = MATCHUP_WINDOW_DAYS * 86400
+    window_seconds = window_days * 86400
     per_opp: dict[int, list] = defaultdict(list)
     for opp_id, result, started, elo_chg in timeline_rows:
         started_aware = started if started.tzinfo else started.replace(tzinfo=timezone.utc)

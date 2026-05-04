@@ -105,15 +105,30 @@
     </section>
   {% endif %}
 
-  <h2>Recent matchups <span class="hint-inline">(last {{ matchup_window_days }} days, &ge;{{ matchup_min_games }} games)</span></h2>
-  <div id="matchups-toolbar" class="grid-toolbar"></div>
-  <div id="matchups-grid" class="ag-theme-quartz-dark grid-host"></div>
-  <p id="matchups-empty" class="empty" hidden>No opponents with at least {{ matchup_min_games }} games in the last {{ matchup_window_days }} days.</p>
+  <details class="collapsible-section" data-persist-id="bot-performance-by-opponent" open>
+    <summary><h2>Performance by opponent</h2></summary>
+    <div class="grid-toolbar-row">
+      <div id="matchups-toolbar" class="grid-toolbar"></div>
+      <div class="matchup-controls">
+        <label>Lookback window
+          <input type="number" id="matchup-window-input" min="1" max="365" step="1" value="{{ matchup_window_days }}">
+          <span class="muted">days</span>
+        </label>
+        <label>Min games
+          <input type="number" id="matchup-min-games-input" min="1" max="1000" step="1" value="{{ matchup_min_games }}">
+        </label>
+      </div>
+    </div>
+    <div id="matchups-grid" class="ag-theme-quartz-dark grid-host"></div>
+    <p id="matchups-empty" class="empty" hidden></p>
+  </details>
 
-  <h2>Match history</h2>
-  <p class="hint">Click any column header to sort (Shift-click to multi-sort). Click the ☰ icon on a header for filter / pin / autosize. Use the <strong>Columns</strong> button below to show / hide columns.</p>
-  <div id="matches-toolbar" class="grid-toolbar"></div>
-  <div id="matches-grid" class="ag-theme-quartz-dark grid-host"></div>
+  <details class="collapsible-section" data-persist-id="bot-match-history" open>
+    <summary><h2>Match history</h2></summary>
+    <p class="hint">Click any column header to sort (Shift-click to multi-sort). Click the ☰ icon on a header for filter / pin / autosize. Use the <strong>Columns</strong> button below to show / hide columns.</p>
+    <div id="matches-toolbar" class="grid-toolbar"></div>
+    <div id="matches-grid" class="ag-theme-quartz-dark grid-host"></div>
+  </details>
 
   <script>
     document.addEventListener("DOMContentLoaded", async () => {
@@ -123,15 +138,59 @@
       const downloadedReplays = loadDownloadedReplays();
 
       // ----- Matchups grid -----
-      const matchupsRes = await fetch(`/api/bots/${botId}/matchups.json`);
-      const matchupsBody = matchupsRes.ok ? await matchupsRes.json() : { data: [] };
-      if (!matchupsBody.data.length) {
-        document.getElementById("matchups-grid").style.display = "none";
-        document.getElementById("matchups-toolbar").style.display = "none";
-        document.getElementById("matchups-empty").hidden = false;
-      } else {
-        agGrid.createGrid(document.getElementById("matchups-grid"), {
-          rowData: matchupsBody.data,
+      let matchupsApi = null;
+      let matchupsWindowDays = {{ matchup_window_days }};
+      const windowInput = document.getElementById("matchup-window-input");
+      const minGamesInput = document.getElementById("matchup-min-games-input");
+      const matchupsGridEl = document.getElementById("matchups-grid");
+      const matchupsToolbarEl = document.getElementById("matchups-toolbar");
+      const matchupsEmptyEl = document.getElementById("matchups-empty");
+
+      const savedMatchupSettings = loadMatchupSettings();
+      if (savedMatchupSettings) {
+        if (Number.isFinite(savedMatchupSettings.windowDays)) {
+          windowInput.value = savedMatchupSettings.windowDays;
+        }
+        if (Number.isFinite(savedMatchupSettings.minGames)) {
+          minGamesInput.value = savedMatchupSettings.minGames;
+        }
+      }
+
+      function readMatchupSettings() {
+        const wd = clampInt(windowInput.value, 1, 365, {{ matchup_window_days }});
+        const mg = clampInt(minGamesInput.value, 1, 1000, {{ matchup_min_games }});
+        return { windowDays: wd, minGames: mg };
+      }
+
+      async function reloadMatchups() {
+        const { windowDays, minGames } = readMatchupSettings();
+        saveMatchupSettings({ windowDays, minGames });
+        const url = `/api/bots/${botId}/matchups.json?window_days=${windowDays}&min_games=${minGames}`;
+        const res = await fetch(url);
+        const body = res.ok ? await res.json() : { data: [], window_days: windowDays };
+        matchupsWindowDays = body.window_days || windowDays;
+
+        matchupsEmptyEl.textContent =
+          `No opponents with at least ${minGames} games in the last ${windowDays} days.`;
+
+        if (!body.data.length) {
+          if (matchupsApi) matchupsApi.setGridOption("rowData", []);
+          matchupsGridEl.style.display = "none";
+          matchupsToolbarEl.style.display = "none";
+          matchupsEmptyEl.hidden = false;
+          return;
+        }
+        matchupsGridEl.style.display = "";
+        matchupsToolbarEl.style.display = "";
+        matchupsEmptyEl.hidden = true;
+
+        if (matchupsApi) {
+          matchupsApi.setGridOption("rowData", body.data);
+          return;
+        }
+
+        matchupsApi = agGrid.createGrid(matchupsGridEl, {
+          rowData: body.data,
           domLayout: "autoHeight",
           autoSizeStrategy: { type: "fitGridWidth", defaultMinWidth: 60 },
           defaultColDef: { sortable: true, resizable: true, filter: true, minWidth: 60 },
@@ -174,7 +233,7 @@
               width: 200,
               sortable: false,
               filter: false,
-              headerTooltip: "3-day win/tie/loss breakdown over the last 60 days (green=win, yellow=tie, red=loss)",
+              headerTooltip: "Win/tie/loss breakdown over the lookback window (green=win, yellow=tie, red=loss)",
               cellRenderer: (p) => {
                 const hist = p.value;
                 if (!hist || !hist.length) return "";
@@ -234,7 +293,7 @@
                 if (n < 3) return null;
                 const denom = n * sxx - sx * sx;
                 if (denom === 0) return null;
-                return (n * sxy - sx * sy) / denom * (30 / matchupsBody.window_days);
+                return (n * sxy - sx * sy) / denom * (30 / matchupsWindowDays);
               },
               cellRenderer: (p) => {
                 const v = p.value;
@@ -272,6 +331,15 @@
           },
         });
       }
+
+      let matchupsReloadTimer = null;
+      function scheduleMatchupsReload() {
+        clearTimeout(matchupsReloadTimer);
+        matchupsReloadTimer = setTimeout(reloadMatchups, 300);
+      }
+      windowInput.addEventListener("input", scheduleMatchupsReload);
+      minGamesInput.addEventListener("input", scheduleMatchupsReload);
+      await reloadMatchups();
 
       // End-of-round ELO + rank both come from /api/.../rank-history.json
       // (only completed rounds, end-of-round resultant_elo, sort all bots by

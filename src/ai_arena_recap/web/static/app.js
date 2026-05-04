@@ -27,6 +27,49 @@ function markReplayDownloaded(matchId) {
   set.add(matchId);
   localStorage.setItem(DOWNLOADED_REPLAYS_KEY, JSON.stringify([...set]));
 }
+
+const MATCHUP_SETTINGS_KEY = "bot-matchup-settings-v1";
+
+function loadMatchupSettings() {
+  try {
+    return JSON.parse(localStorage.getItem(MATCHUP_SETTINGS_KEY)) || null;
+  } catch {
+    return null;
+  }
+}
+
+function saveMatchupSettings(s) {
+  localStorage.setItem(MATCHUP_SETTINGS_KEY, JSON.stringify(s));
+}
+
+function clampInt(v, lo, hi, fallback) {
+  const n = parseInt(v, 10);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(lo, Math.min(hi, n));
+}
+
+const COLLAPSIBLE_KEY = "collapsible-sections-v1";
+
+function loadCollapsibleState() {
+  try {
+    return JSON.parse(localStorage.getItem(COLLAPSIBLE_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  const state = loadCollapsibleState();
+  for (const el of document.querySelectorAll("details[data-persist-id]")) {
+    const id = el.dataset.persistId;
+    if (id in state) el.open = state[id];
+    el.addEventListener("toggle", () => {
+      const s = loadCollapsibleState();
+      s[id] = el.open;
+      localStorage.setItem(COLLAPSIBLE_KEY, JSON.stringify(s));
+    });
+  }
+});
 const RACE_NAMES = { T: "Terran", Z: "Zerg", P: "Protoss", R: "Random" };
 
 function raceBadge(v) {

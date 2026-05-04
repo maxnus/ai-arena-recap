@@ -133,6 +133,28 @@ h1, h2 { color: var(--text); }
 h1 { margin-top: 0; }
 h2 { margin-top: 1.6rem; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; }
 
+details.collapsible-section > summary {
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+details.collapsible-section > summary::-webkit-details-marker { display: none; }
+details.collapsible-section > summary > h2 {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+details.collapsible-section > summary > h2::before {
+  content: "▸";
+  color: var(--muted);
+  font-size: 0.7em;
+  flex-shrink: 0;
+  transition: transform 120ms ease;
+}
+details.collapsible-section[open] > summary > h2::before {
+  transform: rotate(90deg);
+}
+
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
@@ -579,6 +601,43 @@ footer {
 }
 .ag-theme-quartz-dark .ag-header-cell.ag-center-header .ag-header-cell-label {
   justify-content: center !important;
+}
+
+/* Compact controls row for the matchups section. */
+.grid-toolbar-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 0.4rem;
+}
+.grid-toolbar-row > .grid-toolbar { margin-top: 0; }
+.matchup-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.matchup-controls label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.matchup-controls input[type="number"] {
+  width: 5rem;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.25rem 0.4rem;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+.matchup-controls input[type="number"]:focus {
+  outline: none;
+  border-color: var(--accent);
 }
 
 /* --- Custom column-toggle toolbar --- */

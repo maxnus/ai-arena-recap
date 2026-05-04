@@ -179,6 +179,36 @@ class TestRecentMatchups:
 
         assert recent_matchups(session, 1) == []
 
+    def test_custom_min_games_overrides_default(self, session, fixed_now):
+        _seed_competition(session)
+        _seed_bot(session, 1, "Alpha", "T")
+        _seed_bot(session, 2, "Opp", "Z")
+
+        # 5 games — below default MATCHUP_MIN_GAMES, but enough for min_games=3.
+        for i in range(5):
+            _seed_match(session, match_id=600 + i, bot_a=1, bot_b=2,
+                        a_result="win", started=NOW - timedelta(days=i + 1))
+        session.commit()
+
+        assert recent_matchups(session, 1) == []
+        m = recent_matchups(session, 1, min_games=3)
+        assert len(m) == 1 and m[0]["matches"] == 5
+
+    def test_custom_window_days_extends_lookback(self, session, fixed_now):
+        _seed_competition(session)
+        _seed_bot(session, 1, "Alpha", "T")
+        _seed_bot(session, 2, "Old", "Z")
+
+        # Outside default 60-day window but inside a 120-day window.
+        for i in range(MATCHUP_MIN_GAMES):
+            _seed_match(session, match_id=700 + i, bot_a=1, bot_b=2,
+                        a_result="win", started=NOW - timedelta(days=70 + i))
+        session.commit()
+
+        assert recent_matchups(session, 1) == []
+        m = recent_matchups(session, 1, window_days=120)
+        assert len(m) == 1 and m[0]["matches"] == MATCHUP_MIN_GAMES
+
     def test_trend_pp_uses_first_vs_second_half(self, session, fixed_now):
         _seed_competition(session)
         _seed_bot(session, 1, "Alpha", "T")

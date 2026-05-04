@@ -221,6 +221,22 @@ class TestBotMatchupsJson:
         assert body["window_days"] == 60
         assert body["min_games"] == 10
 
+    def test_echoes_custom_window_and_min_games(self, client, session):
+        upsert(session, Bot, {"id": 1, "name": "Alpha", "plays_race": "T", "last_synced": _now()})
+        session.commit()
+
+        body = client.get("/api/bots/1/matchups.json?window_days=30&min_games=5").json()
+        assert body["window_days"] == 30
+        assert body["min_games"] == 5
+
+    def test_rejects_out_of_range_params(self, client, session):
+        upsert(session, Bot, {"id": 1, "name": "Alpha", "plays_race": "T", "last_synced": _now()})
+        session.commit()
+
+        assert client.get("/api/bots/1/matchups.json?window_days=0").status_code == 422
+        assert client.get("/api/bots/1/matchups.json?window_days=400").status_code == 422
+        assert client.get("/api/bots/1/matchups.json?min_games=0").status_code == 422
+
 
 class TestBotSearchJson:
     def _seed_bot(self, session, *, bot_id, name, race="T", author=None, active=None, elo=None, highest_elo=None):

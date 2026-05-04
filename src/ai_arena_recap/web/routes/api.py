@@ -272,13 +272,18 @@ def match_recent_vs_json(
 
 
 @router.get("/bots/{bot_id}/matchups.json")
-def bot_matchups_json(bot_id: int, session: Session = Depends(get_session)) -> dict[str, Any]:
+def bot_matchups_json(
+    bot_id: int,
+    window_days: int = Query(MATCHUP_WINDOW_DAYS, ge=1, le=365),
+    min_games: int = Query(MATCHUP_MIN_GAMES, ge=1, le=1000),
+    session: Session = Depends(get_session),
+) -> dict[str, Any]:
     if session.get(Bot, bot_id) is None:
         raise HTTPException(status_code=404, detail="Bot not found")
     return {
-        "data": recent_matchups(session, bot_id),
-        "window_days": MATCHUP_WINDOW_DAYS,
-        "min_games": MATCHUP_MIN_GAMES,
+        "data": recent_matchups(session, bot_id, window_days=window_days, min_games=min_games),
+        "window_days": window_days,
+        "min_games": min_games,
     }
 
 
