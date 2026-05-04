@@ -59,8 +59,9 @@
   </table>
 
   <p class="actions">
-    {% if match.result_type == 'MatchCancelled' %}
-      <span class="button button-disabled" aria-disabled="true" title="No replay available — match was cancelled">Download replay</span>
+    {% if match.result_type in ('MatchCancelled', 'InitializationError') %}
+      {% set reason = 'match was cancelled' if match.result_type == 'MatchCancelled' else 'bot failed to initialize' %}
+      <span class="button button-disabled" aria-disabled="true" title="No replay available — {{ reason }}">Download replay</span>
     {% else %}
       <a class="button" href="/matches/{{ match.id }}/replay">Download replay</a>
     {% endif %}
@@ -128,8 +129,7 @@
             cellStyle: { textAlign: "center" },
             cellRenderer: (p) => {
               const r = p.data;
-              if (!r || !r.ended) return "";
-              if (r.result_type === "MatchCancelled") return "";
+              if (!matchHasReplay(r)) return "";
               const cls = downloadedReplays.has(r.match_id) ? "icon-button downloaded" : "icon-button";
               return `<a class="${cls}" data-match-id="${r.match_id}" href="/matches/${r.match_id}/replay" title="Download replay"><span class="glyph">${DOWNLOAD_ICON}</span></a>`;
             },

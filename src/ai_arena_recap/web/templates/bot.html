@@ -595,8 +595,7 @@
             cellStyle: { textAlign: "center" },
             cellRenderer: (p) => {
               const r = p.data;
-              if (!r || !r.ended) return "";
-              if (r.result_type === "MatchCancelled") return "";
+              if (!matchHasReplay(r)) return "";
               const cls = downloadedReplays.has(r.match_id) ? "icon-button downloaded" : "icon-button";
               return `<a class="${cls}" data-match-id="${r.match_id}" href="/matches/${r.match_id}/replay" title="Download replay"><span class="glyph">${DOWNLOAD_ICON}</span></a>`;
             },

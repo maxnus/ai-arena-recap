@@ -1,5 +1,11 @@
 const DOWNLOAD_ICON = "⬇";
 
+const NO_REPLAY_RESULT_TYPES = new Set(["MatchCancelled", "InitializationError"]);
+
+function matchHasReplay(r) {
+  return !!(r && r.ended && !NO_REPLAY_RESULT_TYPES.has(r.result_type));
+}
+
 function escapeHtml(s) {
   if (s == null) return "";
   return String(s)
