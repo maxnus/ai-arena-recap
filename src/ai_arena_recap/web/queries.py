@@ -188,14 +188,17 @@ def recent_matchups(session: Session, bot_id: int) -> list[dict]:
 
 def bot_current_rank(session: Session, bot_id: int) -> int | None:
     """Bot's position on the current active ladder, ordered the same way as
-    the ladder page (division asc, then ELO desc). Returns None if the bot
-    isn't an active participant of the current competition."""
+    the ladder page (division asc, then ELO desc). Bots with division_num 0
+    or NULL are awaiting placement and excluded from the ranking — matches
+    the split done by /api/ladder.json. Returns None if the bot isn't an
+    active, placed participant of the current competition."""
     rows = session.exec(
         select(CompetitionParticipation.bot_id)
         .where(CompetitionParticipation.competition_id == settings.competition_id)
         .where(CompetitionParticipation.active == True)  # noqa: E712
+        .where(CompetitionParticipation.division_num > 0)
         .order_by(
-            CompetitionParticipation.division_num.asc().nullslast(),
+            CompetitionParticipation.division_num.asc(),
             CompetitionParticipation.elo.desc().nullslast(),
         )
     ).all()
