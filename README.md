@@ -1,6 +1,6 @@
 # AI Arena Recap
 
-Website that aggregates and displays StarCraft 2 bot-vs-bot match data from [aiarena.net](https://aiarena.net). It syncs competitive match results to a local SQLite database and serves a dashboard with rankings, per-bot analytics, and match details.
+Code behind [aiarenarecap.com](https://aiarenarecap.com), a website that aggregates and displays StarCraft 2 bot-vs-bot match data from [aiarena.net](https://aiarena.net). It syncs competitive match results to a local SQLite database and serves a dashboard with rankings, per-bot analytics, and match details.
 
 ## Features
 
