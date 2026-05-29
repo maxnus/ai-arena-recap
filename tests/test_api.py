@@ -15,6 +15,22 @@ def _now():
 
 
 @pytest.fixture()
+def fixed_now(monkeypatch):
+    """Pin `utcnow` so window-relative route tests don't drift with the wall
+    clock (mirrors the fixture in test_queries.py). The recent-vs route binds
+    `utcnow` in its own module namespace, so patch it there."""
+    from ai_arena_recap.sync import common as common_module
+    from ai_arena_recap.web.routes import api as api_module
+
+    def _fake_utcnow():
+        return _now()
+
+    monkeypatch.setattr(common_module, "utcnow", _fake_utcnow)
+    monkeypatch.setattr(api_module, "utcnow", _fake_utcnow)
+    return _now()
+
+
+@pytest.fixture()
 def client(engine):
     # create_app's lifespan starts a scheduler we don't want during tests; bypass it.
     from fastapi import FastAPI
@@ -177,7 +193,7 @@ class TestMatchRecentVsJson:
         r = client.get("/api/matches/9999/recent-vs.json")
         assert r.status_code == 404
 
-    def test_returns_only_h2h_matches_within_window(self, client, session):
+    def test_returns_only_h2h_matches_within_window(self, client, session, fixed_now):
         self._seed_two_bots(session)
         # Two h2h matches inside the default 30d window:
         self._seed_h2h_match(session, match_id=100, started=_now(), winner_id=1)
