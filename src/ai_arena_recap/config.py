@@ -21,7 +21,13 @@ class Settings(BaseSettings):
     db_path: Path = Field(default=PROJECT_ROOT / "data" / "recap.sqlite")
     sync_interval_seconds: int = 300
     request_concurrency: int = 8
-    bot_refresh_seconds: int = 3600
+    # The aiarena.net API honours large page sizes (tested up to 1000), so pull
+    # list endpoints in big pages to minimise the number of HTTP round-trips.
+    api_page_size: int = 500
+    # Bot metadata (name, race, type, wiki) changes rarely and the API has no
+    # bulk-by-id fetch, so each refresh costs one request per bot. Refresh
+    # infrequently; live ELO/stats come from competition-participations instead.
+    bot_refresh_seconds: int = 21600
 
     replay_cache_enabled: bool = False
     replay_dir: Path = Field(default=PROJECT_ROOT / "data" / "replays")

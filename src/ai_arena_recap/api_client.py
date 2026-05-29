@@ -61,7 +61,7 @@ class AiArenaClient:
 
     async def _paginate(self, path: str, params: dict[str, Any] | None = None) -> AsyncIterator[dict[str, Any]]:
         url: str | None = f"{self.base_url}{path}"
-        merged = {"format": "json", "limit": 200, **(params or {})}
+        merged = {"format": "json", "limit": settings.api_page_size, **(params or {})}
         while url:
             data = await self._get(url, params=merged)
             for item in data.get("results", []):

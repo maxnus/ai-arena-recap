@@ -150,23 +150,33 @@ async def sync_rounds_and_matches(
             ).all()
         )
 
-        new_match_ids: list[int] = []
+        # Only fetch participations for matches that have *finished*. The match
+        # sweep above already embeds each match's result, so an unfinished match
+        # has result_created=None and its participation rows carry no result data
+        # yet. Polling those every tick (they stay unfinished for hours) was the
+        # dominant source of tiny API requests. A finished match gets
+        # result_created set here, so next tick it lands in `already_final` and is
+        # never refetched; the repair pass covers the brief result-lands-before-
+        # participations race.
+        finished_match_ids: list[int] = []
         async for m in client.list_matches_for_round(r["id"]):
             if m["id"] in already_final:
                 continue
-            upsert(session, Match, _match_values(m))
-            new_match_ids.append(m["id"])
+            values = _match_values(m)
+            upsert(session, Match, values)
+            if values["result_created"] is not None:
+                finished_match_ids.append(m["id"])
         session.commit()
 
         # Fetch participations concurrently, then write sequentially (single Session).
         # return_exceptions=True so a single API hiccup doesn't erase the whole batch.
-        if new_match_ids:
-            log.info("Round %s: fetching participations for %d matches", r.get("number"), len(new_match_ids))
+        if finished_match_ids:
+            log.info("Round %s: fetching participations for %d newly-finished matches", r.get("number"), len(finished_match_ids))
             results = await asyncio.gather(
-                *[_fetch_participations(client, mid) for mid in new_match_ids],
+                *[_fetch_participations(client, mid) for mid in finished_match_ids],
                 return_exceptions=True,
             )
-            for mid, items in zip(new_match_ids, results, strict=True):
+            for mid, items in zip(finished_match_ids, results, strict=True):
                 if isinstance(items, BaseException):
                     log.warning("Failed to fetch participations for match %s: %s", mid, items)
                     continue

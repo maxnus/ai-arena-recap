@@ -7,9 +7,9 @@ from datetime import datetime, timezone
 
 from sqlmodel import select
 
-from ai_arena_recap.models import Bot, Competition, Match, MatchParticipation, Round
+from ai_arena_recap.models import Bot, Competition, Map, Match, MatchParticipation, Round
 from ai_arena_recap.sync.common import ensure_bot_stub, upsert
-from ai_arena_recap.sync.rounds import repair_incomplete_participations
+from ai_arena_recap.sync.rounds import repair_incomplete_participations, sync_rounds_and_matches
 
 
 def _now() -> datetime:
@@ -167,3 +167,82 @@ class TestRepairIncompleteParticipations:
         client = _FakeApiClient({})
         asyncio.run(repair_incomplete_participations(session, client))
         assert client.calls == []
+
+
+class _FakeRoundClient:
+    """Stand-in for AiArenaClient covering the calls sync_rounds_and_matches makes."""
+
+    def __init__(self, rounds: list[dict], matches_by_round: dict[int, list[dict]],
+                 parts_by_match: dict[int, list[dict]]):
+        self._rounds = rounds
+        self._matches_by_round = matches_by_round
+        self._parts_by_match = parts_by_match
+        self.participation_calls: list[int] = []
+
+    async def list_rounds(self, competition_id: int):
+        for r in self._rounds:
+            yield r
+
+    async def list_matches_for_round(self, round_id: int):
+        for m in self._matches_by_round.get(round_id, []):
+            yield m
+
+    async def list_match_participations(self, match_id: int):
+        self.participation_calls.append(match_id)
+        for p in self._parts_by_match.get(match_id, []):
+            yield p
+
+
+class TestSyncRoundsAndMatches:
+    def test_only_fetches_participations_for_finished_matches(self, session):
+        # One open round with a finished match (10) and an in-progress match (11).
+        upsert(session, Competition, {"id": 36, "name": "T", "last_synced": _now()})
+        upsert(session, Map, {"id": 5, "name": "M", "last_synced": _now()})
+        session.commit()
+        rounds = [{"id": 1, "number": 1, "competition": 36, "complete": False}]
+        matches = {1: [
+            {"id": 10, "round": 1, "map": 5, "started": "2026-04-25T11:00:00Z",
+             "result": {"type": "Player1Win", "winner": 100, "created": "2026-04-25T12:00:00Z",
+                        "game_steps": 100, "bot1_name": "A", "bot2_name": "B"}},
+            {"id": 11, "round": 1, "map": 5, "started": "2026-04-25T11:00:00Z", "result": None},
+        ]}
+        parts = {10: [
+            {"id": 200, "match": 10, "participant_number": 1, "bot": 100,
+             "result": "win", "elo_change": 5, "resultant_elo": 1505, "avg_step_time": 0.01},
+            {"id": 201, "match": 10, "participant_number": 2, "bot": 101,
+             "result": "loss", "elo_change": -5, "resultant_elo": 1495, "avg_step_time": 0.02},
+        ]}
+        client = _FakeRoundClient(rounds, matches, parts)
+
+        asyncio.run(sync_rounds_and_matches(session, client, 36))
+
+        # Only the finished match's participations were fetched — the in-progress
+        # match (11) was not polled, even though it has no local result yet.
+        assert client.participation_calls == [10]
+        # Both matches are tracked; only the finished one has result_created.
+        assert session.get(Match, 10).result_created is not None
+        assert session.get(Match, 11).result_created is None
+        # Finished match got its participation rows with results.
+        parts_10 = session.exec(
+            select(MatchParticipation).where(MatchParticipation.match_id == 10)
+            .order_by(MatchParticipation.participant_number)
+        ).all()
+        assert [p.result for p in parts_10] == ["win", "loss"]
+
+    def test_skips_match_already_finalized_locally(self, session):
+        # A match already finalized (result_created set) must not be refetched.
+        upsert(session, Competition, {"id": 36, "name": "T", "last_synced": _now()})
+        upsert(session, Round, {"id": 1, "number": 1, "competition_id": 36,
+                                "complete": False, "last_synced": _now()})
+        upsert(session, Match, {"id": 10, "round_id": 1, "result_created": _now(),
+                                "result_type": "Player1Win", "last_synced": _now()})
+        session.commit()
+
+        rounds = [{"id": 1, "number": 1, "competition": 36, "complete": False}]
+        matches = {1: [
+            {"id": 10, "round": 1, "result": {"type": "Player1Win", "created": "2026-04-25T12:00:00Z"}},
+        ]}
+        client = _FakeRoundClient(rounds, matches, {})
+
+        asyncio.run(sync_rounds_and_matches(session, client, 36))
+        assert client.participation_calls == []
