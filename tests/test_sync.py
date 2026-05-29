@@ -149,6 +149,33 @@ class TestRepairIncompleteParticipations:
         asyncio.run(repair_incomplete_participations(session, client))
         assert client.calls == []  # no API hits
 
+    def test_skips_cancelled_matches(self, session):
+        # MatchCancelled games have participation rows but never get per-bot
+        # results, so they can never become "complete". Repair must treat them
+        # as settled and not refetch them every tick forever.
+        upsert(session, Competition, {"id": 36, "name": "T", "last_synced": _now()})
+        upsert(session, Round, {"id": 1, "number": 1, "competition_id": 36, "complete": False, "last_synced": _now()})
+        upsert(session, Match, {
+            "id": 777, "round_id": 1, "started": _now(),
+            "result_type": "MatchCancelled", "result_created": _now(),
+            "last_synced": _now(),
+        })
+        ensure_bot_stub(session, 10)
+        ensure_bot_stub(session, 20)
+        upsert(session, MatchParticipation, {
+            "id": 100, "match_id": 777, "bot_id": 10, "participant_number": 1,
+            "result": None, "elo_change": None, "last_synced": _now(),
+        })
+        upsert(session, MatchParticipation, {
+            "id": 101, "match_id": 777, "bot_id": 20, "participant_number": 2,
+            "result": None, "elo_change": None, "last_synced": _now(),
+        })
+        session.commit()
+
+        client = _FakeApiClient({})
+        asyncio.run(repair_incomplete_participations(session, client))
+        assert client.calls == []  # cancelled match is settled, not refetched
+
     def test_does_not_touch_in_progress_matches(self, session):
         # Match without result_created — still in progress, should not be repaired.
         upsert(session, Competition, {"id": 36, "name": "T", "last_synced": _now()})

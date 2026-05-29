@@ -61,11 +61,18 @@ async def repair_incomplete_participations(session: Session, client: AiArenaClie
        participation rows get their elo_change / avg_step_time / result fields.
     2. Partial sync: a transient API error during the round's batch fetch caused
        us to drop the participations entirely (zero rows for the match).
+
+    MatchCancelled games are excluded: they are terminal but never produce
+    per-bot results, so they can never satisfy the "complete" check below.
+    Including them made repair refetch every cancelled match ever, every tick,
+    forever (the candidate set has no time bound).
     """
     from sqlalchemy import func
 
     finished = set(session.exec(
-        select(Match.id).where(Match.result_created.is_not(None))
+        select(Match.id)
+        .where(Match.result_created.is_not(None))
+        .where(Match.result_type.is_distinct_from("MatchCancelled"))
     ).all())
     if not finished:
         return set()
