@@ -30,14 +30,31 @@ header {
   border-bottom: 1px solid var(--border);
   padding: 0.6rem 1.2rem;
 }
-nav { display: flex; align-items: center; gap: 1rem; }
+nav { display: flex; align-items: center; gap: 1rem; position: relative; }
 .brand { font-weight: 600; color: var(--accent); text-decoration: none; font-size: 1.1rem; }
-.comp-name { color: var(--muted); }
+/* Centered in the bar regardless of the link / search widths on either side.
+ * Absolutely positioned so it doesn't shift the flex flow; pointer-events off
+ * so it never blocks a control it might overlap on a narrow viewport. */
+.comp-name {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  pointer-events: none;
+}
 
 /* --- Bot search box (header) --- */
+.nav-right {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-left: auto;
+}
 .bot-search {
   position: relative;
-  margin-left: auto;
   width: min(360px, 40vw);
 }
 .bot-search-input {
@@ -685,3 +702,131 @@ footer {
   user-select: none;
 }
 .col-toggle-popover label:hover { color: var(--accent); }
+
+/* ---- Top 10 rankings page ---- */
+.rank-group {
+  margin: 1.6rem 0 0.6rem;
+  font-size: 1.05rem;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.3rem;
+}
+
+.rank-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 0.75rem;
+}
+
+.rank-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.7rem 0.85rem 0.5rem;
+}
+
+.rank-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.rank-card-title {
+  font-weight: 600;
+}
+
+.rank-card-vlabel {
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+/* "?" help icon — the card's explanatory note shows as its hover tooltip.
+ * Inline so every card head stays a single line and the rank lists below
+ * line up across a grid row. */
+.rank-help {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  color: var(--muted);
+  font-size: 0.65rem;
+  font-weight: 600;
+  line-height: 1;
+  cursor: help;
+  vertical-align: middle;
+}
+.rank-help:hover {
+  color: var(--text);
+  border-color: var(--muted);
+}
+
+.rank-list {
+  list-style: none;
+  margin: 0.55rem 0 0;
+  padding: 0;
+}
+
+.rank-row {
+  display: grid;
+  grid-template-columns: 1.2rem 1fr auto;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.22rem 0;
+  border-top: 1px solid var(--border);
+}
+
+.rank-row:first-child {
+  border-top: none;
+}
+
+.rank-pos {
+  color: var(--muted);
+  font-size: 0.8rem;
+  text-align: right;
+}
+
+.rank-name {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rank-sub {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.rank-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.rank-empty {
+  color: var(--muted);
+  font-size: 0.85rem;
+  padding: 0.55rem 0 0.2rem;
+}
+
+/* header nav link to the rankings page */
+.nav-link {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+.nav-link:hover {
+  color: var(--text);
+}
+.nav-link.active {
+  color: var(--text);
+  font-weight: 600;
+}

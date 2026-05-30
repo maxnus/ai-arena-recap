@@ -16,22 +16,26 @@
   <header>
     <nav>
       <a class="brand" href="/">AI Arena Recap</a>
+      <a class="nav-link{% if request.url.path == '/' %} active{% endif %}" href="/">Leaderboard</a>
+      <a class="nav-link{% if request.url.path == '/rankings' %} active{% endif %}" href="/rankings">Top 10 Rankings</a>
       {% if competition %}
         <span class="comp-name">{{ competition.name }}</span>
       {% endif %}
-      <div class="bot-search" id="bot-search">
-        <input
-          type="search"
-          id="bot-search-input"
-          class="bot-search-input"
-          placeholder="Search bots…"
-          autocomplete="off"
-          spellcheck="false"
-          aria-label="Search bots"
-          aria-autocomplete="list"
-          aria-controls="bot-search-results"
-        >
-        <div id="bot-search-results" class="bot-search-results" role="listbox" hidden></div>
+      <div class="nav-right">
+        <div class="bot-search" id="bot-search">
+          <input
+            type="search"
+            id="bot-search-input"
+            class="bot-search-input"
+            placeholder="Search bots…"
+            autocomplete="off"
+            spellcheck="false"
+            aria-label="Search bots"
+            aria-autocomplete="list"
+            aria-controls="bot-search-results"
+          >
+          <div id="bot-search-results" class="bot-search-results" role="listbox" hidden></div>
+        </div>
       </div>
     </nav>
   </header>

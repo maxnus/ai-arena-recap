@@ -34,3 +34,10 @@ async def sync_all(*, max_rounds: int | None = None, force_bots: bool = False) -
                 )
                 await sync_bots(session, client, referenced_bots | match_bot_ids | repaired_bots, force=force_bots)
         log.info("Sync complete in %.1fs", time.monotonic() - t0)
+
+        # Pre-warm the /rankings cache off the event loop so the first visitor
+        # after this sync never waits on the aggregate queries. A no-op when the
+        # data fingerprint is unchanged; never raises. Imported lazily to keep
+        # the web layer out of the sync module's import graph.
+        from ai_arena_recap.web.rankings import warm_rankings
+        await asyncio.to_thread(warm_rankings)

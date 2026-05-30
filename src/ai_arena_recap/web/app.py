@@ -15,7 +15,7 @@ from ai_arena_recap.db import engine, init_db
 from ai_arena_recap.models import Bot, Competition, Match, Round
 from ai_arena_recap.sync.replays import sync_replays
 from ai_arena_recap.sync.runner import sync_all
-from ai_arena_recap.web.routes import api, bot, ladder, match
+from ai_arena_recap.web.routes import api, bot, ladder, match, rankings
 
 LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 
@@ -100,6 +100,7 @@ def create_app() -> FastAPI:
     app.include_router(ladder.router)
     app.include_router(bot.router)
     app.include_router(match.router)
+    app.include_router(rankings.router)
     app.include_router(api.router)
 
     @app.get("/healthz")

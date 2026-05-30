@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% from "_macros.html" import race_icon %}
+{% block title %}Top 10 &middot; {{ competition.name if competition else 'AI Arena Recap' }}{% endblock %}
+{% block content %}
+  <h1>Top 10 Rankings</h1>
+
+  {% for group in groups %}
+    <h2 class="rank-group">{{ group.title }}</h2>
+    <div class="rank-cards">
+      {% for card in group.cards %}
+        <section class="rank-card">
+          <div class="rank-card-head">
+            <span class="rank-card-title">{{ card.title
+              }}{% if card.note %} <span class="rank-help" title="{{ card.note }}" aria-label="{{ card.note }}">?</span>{% endif %}</span>
+            {% if card.value_label %}<span class="rank-card-vlabel">{{ card.value_label }}</span>{% endif %}
+          </div>
+          {% if card.rows %}
+            <ol class="rank-list">
+              {% for row in card.rows %}
+                <li class="rank-row">
+                  <span class="rank-pos">{{ loop.index }}</span>
+                  <span class="rank-name">
+                    {% if row.race %}{{ race_icon(row.race) }}{% endif %}
+                    {% if row.href %}<a href="{{ row.href }}">{{ row.name }}</a>{% else %}{{ row.name }}{% endif %}
+                    {% if row.sub %}<span class="rank-sub">{{ row.sub }}</span>{% endif %}
+                  </span>
+                  <span class="rank-value">{{ row.value }}</span>
+                </li>
+              {% endfor %}
+            </ol>
+          {% else %}
+            <div class="rank-empty">Not enough data yet.</div>
+          {% endif %}
+        </section>
+      {% endfor %}
+    </div>
+  {% endfor %}
+{% endblock %}
