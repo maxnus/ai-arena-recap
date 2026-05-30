@@ -140,6 +140,44 @@ def fastest_step_time(session, *, limit=TOP_N, min_matches=MIN_MATCHES) -> list[
     return _step_rows(_per_bot_match_stats(session, min_matches=min_matches), limit=limit)
 
 
+def _elo_by_bot(session: Session) -> dict[int, int]:
+    """Current competition ELO for each active ladder bot, keyed by bot id —
+    the numerator source for the efficiency board."""
+    cp = CompetitionParticipation
+    rows = session.exec(
+        select(cp.bot_id, cp.elo)
+        .where(cp.competition_id == settings.competition_id)
+        .where(cp.active == True)  # noqa: E712
+        .where(cp.elo.is_not(None))
+    ).all()
+    return {bot_id: elo for bot_id, elo in rows}
+
+
+def _efficiency_rows(stats, elo_by_bot, *, limit=TOP_N):
+    """ELO above the 1600 baseline per millisecond of step time —
+    (ELO − 1600) ÷ avg step time. Rewards bots that are strong *and* think fast.
+    Reuses the shared per-bot match stats (same MIN_MATCHES floor and avg step
+    time) plus current ELO; a bot needs both to be eligible."""
+    cand = []
+    for r in stats:
+        elo = elo_by_bot.get(r.id)
+        if elo is None or not r.avg_step_time:
+            continue
+        cand.append((r.id, r.name, r.plays_race, (elo - 1600) / (r.avg_step_time * 1000)))
+    cand.sort(key=lambda x: x[3], reverse=True)
+    return [_row(name, f"{eff:.1f}", href=f"/bots/{bid}", race=race)
+            for bid, name, race, eff in cand[:limit]]
+
+
+def most_efficient(session, *, limit=TOP_N, min_matches=MIN_MATCHES) -> list[dict]:
+    """Highest (ELO − 1600) per ms of average step time."""
+    return _efficiency_rows(
+        _per_bot_match_stats(session, min_matches=min_matches),
+        _elo_by_bot(session),
+        limit=limit,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Race matchups (one shared query feeds best-vs-race x3 + most-balanced)
 # ---------------------------------------------------------------------------
@@ -547,6 +585,7 @@ def _build_rankings(session: Session) -> list[dict]:
     stats = _per_bot_match_stats(session)
     oppr = _winrate_by_opprace(session)
     race_elo = _race_elo_all(session)
+    elo_by_bot = _elo_by_bot(session)
 
     return [
         {
@@ -618,6 +657,9 @@ def _build_rankings(session: Session) -> list[dict]:
                 {"title": "Fastest step time", "value_label": "Avg step",
                  "note": f"Avg per-step compute, min {MIN_MATCHES} games",
                  "rows": _step_rows(stats)},
+                {"title": "Most efficient", "value_label": "ELO/ms",
+                 "note": f"(ELO − 1600) per ms of step time, min {MIN_MATCHES} games",
+                 "rows": _efficiency_rows(stats, elo_by_bot)},
             ],
         },
         {

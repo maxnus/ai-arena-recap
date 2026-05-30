@@ -83,7 +83,7 @@ def _seed_round(session, round_id, number):
 
 
 def _seed_match(session, mid, *, a, a_res, a_elo, b, b_res, b_elo, steps, started,
-                a_res_elo=None, b_res_elo=None, round_id=1):
+                a_res_elo=None, b_res_elo=None, round_id=1, a_step=None, b_step=None):
     upsert(session, Match, {
         "id": mid, "round_id": round_id, "map_id": 1, "started": started,
         "result_game_steps": steps, "last_synced": NOW,
@@ -91,12 +91,12 @@ def _seed_match(session, mid, *, a, a_res, a_elo, b, b_res, b_elo, steps, starte
     upsert(session, MatchParticipation, {
         "id": mid * 2 - 1, "match_id": mid, "bot_id": a, "participant_number": 1,
         "starting_elo": a_elo, "resultant_elo": a_res_elo if a_res_elo is not None else a_elo,
-        "result": a_res, "last_synced": NOW,
+        "result": a_res, "avg_step_time": a_step, "last_synced": NOW,
     })
     upsert(session, MatchParticipation, {
         "id": mid * 2, "match_id": mid, "bot_id": b, "participant_number": 2,
         "starting_elo": b_elo, "resultant_elo": b_res_elo if b_res_elo is not None else b_elo,
-        "result": b_res, "last_synced": NOW,
+        "result": b_res, "avg_step_time": b_step, "last_synced": NOW,
     })
 
 
@@ -195,6 +195,29 @@ def test_most_balanced(session):
     rows = rankings.most_balanced(session, min_per_race=1)
     top = next(row for row in rows if row["name"] == "Allrounder")
     assert top["value"] == "0 pp"
+
+
+def test_most_efficient(session):
+    _seed_base(session)
+    _seed_bot(session, 1, "FastStrong", "T")
+    _seed_bot(session, 2, "SlowStrong", "Z")
+    _seed_bot(session, 3, "Punchbag", "P")
+    _seed_cp(session, 1, elo=2000)
+    _seed_cp(session, 2, elo=2000)
+    _seed_cp(session, 3, elo=1600)
+    # avg_step_time is in seconds. Efficiency = (ELO - 1600) / (step_time * 1000):
+    # FastStrong (2000-1600)/(0.01*1000) = 40; SlowStrong .../(0.04*1000) = 10.
+    _seed_match(session, 1, a=1, a_res="win", a_elo=1600, b=3, b_res="loss", b_elo=1600,
+                steps=5000, started=_minutes(0), a_step=0.01, b_step=0.01)
+    _seed_match(session, 2, a=2, a_res="win", a_elo=1600, b=3, b_res="loss", b_elo=1600,
+                steps=5000, started=_minutes(1), a_step=0.04, b_step=0.01)
+    session.commit()
+
+    rows = rankings.most_efficient(session, min_matches=1)
+    names = [r["name"] for r in rows]
+    assert names[0] == "FastStrong"
+    assert names.index("FastStrong") < names.index("SlowStrong")
+    assert rows[0]["value"] == "40.0"
 
 
 def test_top_authors_by_mean_elo(session):
