@@ -220,6 +220,29 @@ def test_most_efficient(session):
     assert rows[0]["value"] == "40.0"
 
 
+def test_deep_thinker(session):
+    _seed_base(session)
+    _seed_bot(session, 1, "SlowStrong", "T")
+    _seed_bot(session, 2, "FastStrong", "Z")
+    _seed_bot(session, 3, "Punchbag", "P")
+    _seed_cp(session, 1, elo=2000)
+    _seed_cp(session, 2, elo=2000)
+    _seed_cp(session, 3, elo=1600)
+    # Deep-thinker score = (ELO - 1600) * (step_time * 1000):
+    # SlowStrong (2000-1600)*(0.04*1000) = 16000; FastStrong .*(0.01*1000) = 4000.
+    _seed_match(session, 1, a=1, a_res="win", a_elo=1600, b=3, b_res="loss", b_elo=1600,
+                steps=5000, started=_minutes(0), a_step=0.04, b_step=0.01)
+    _seed_match(session, 2, a=2, a_res="win", a_elo=1600, b=3, b_res="loss", b_elo=1600,
+                steps=5000, started=_minutes(1), a_step=0.01, b_step=0.01)
+    session.commit()
+
+    rows = rankings.deep_thinker(session, min_matches=1)
+    names = [r["name"] for r in rows]
+    assert names[0] == "SlowStrong"
+    assert names.index("SlowStrong") < names.index("FastStrong")
+    assert rows[0]["value"] == "16,000"
+
+
 def test_top_authors_by_mean_elo(session):
     _seed_base(session)
     _seed_bot(session, 1, "A1", user="alice")

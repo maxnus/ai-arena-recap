@@ -178,6 +178,32 @@ def most_efficient(session, *, limit=TOP_N, min_matches=MIN_MATCHES) -> list[dic
     )
 
 
+def _deep_thinker_rows(stats, elo_by_bot, *, limit=TOP_N):
+    """ELO above the 1600 baseline weighted by step time —
+    (ELO − 1600) × avg step time (ms). The mirror image of the efficiency
+    board: it rewards strong bots that deliberately think slowly. Same inputs
+    and eligibility as ``_efficiency_rows`` (shared per-bot stats + current ELO),
+    multiplying where that one divides."""
+    cand = []
+    for r in stats:
+        elo = elo_by_bot.get(r.id)
+        if elo is None or not r.avg_step_time:
+            continue
+        cand.append((r.id, r.name, r.plays_race, (elo - 1600) * (r.avg_step_time * 1000)))
+    cand.sort(key=lambda x: x[3], reverse=True)
+    return [_row(name, f"{score:,.0f}", href=f"/bots/{bid}", race=race)
+            for bid, name, race, score in cand[:limit]]
+
+
+def deep_thinker(session, *, limit=TOP_N, min_matches=MIN_MATCHES) -> list[dict]:
+    """Highest (ELO − 1600) × ms of average step time."""
+    return _deep_thinker_rows(
+        _per_bot_match_stats(session, min_matches=min_matches),
+        _elo_by_bot(session),
+        limit=limit,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Race matchups (one shared query feeds best-vs-race x3 + most-balanced)
 # ---------------------------------------------------------------------------
@@ -660,6 +686,9 @@ def _build_rankings(session: Session) -> list[dict]:
                 {"title": "Most efficient", "value_label": "ELO/ms",
                  "note": f"(ELO − 1600) per ms of step time, min {MIN_MATCHES} games",
                  "rows": _efficiency_rows(stats, elo_by_bot)},
+                {"title": "Deep thinker", "value_label": "ELO·ms",
+                 "note": f"(ELO − 1600) × ms of step time, min {MIN_MATCHES} games",
+                 "rows": _deep_thinker_rows(stats, elo_by_bot)},
             ],
         },
         {
