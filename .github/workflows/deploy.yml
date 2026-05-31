@@ -1,7 +1,12 @@
 name: Deploy
 
+# Runs only after the CI workflow completes on main (gate added 2026-05-31 so a
+# lint/test failure can no longer ship — previously Deploy ran on push in
+# parallel with CI). workflow_dispatch stays for manual deploys.
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
 
@@ -12,6 +17,9 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # A manual run has no workflow_run payload (conclusion is empty), so allow it
+    # outright; a CI-triggered run must have concluded successfully.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     steps:
       - name: SSH into VPS and update
         env:
