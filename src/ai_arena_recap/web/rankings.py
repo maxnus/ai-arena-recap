@@ -24,10 +24,10 @@ from sqlmodel import Session, select
 from ai_arena_recap.config import settings
 from ai_arena_recap.models import (
     Bot,
-    Competition,
     CompetitionParticipation,
     Match,
     MatchParticipation,
+    PageView,
     Round,
 )
 from ai_arena_recap.web.queries import RACE_ELO_K, STEPS_PER_SECOND, WLT_RESULTS, _win_rate
@@ -594,6 +594,49 @@ def top_authors_by_mean_elo(session, *, limit=TOP_N, min_bots=AUTHOR_MIN_BOTS) -
         .limit(limit)
     ).all()
     return [_row(r.user_name, str(int(round(r.mean_elo))), sub=f"{r.c} bots") for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Popularity (page views — not part of the cached build; see all_rankings)
+# ---------------------------------------------------------------------------
+
+def most_viewed_bots(session: Session, *, limit: int = TOP_N) -> list[dict]:
+    """Bot detail pages with the most recorded views, all time.
+
+    Views come from the page-view middleware (crawlers and non-HTML responses
+    excluded); a bot that's never been opened simply doesn't appear. Deliberately
+    *not* scoped to the active ladder — popularity is popularity, even for bots
+    that have since dropped off. Computed fresh per request (one cheap aggregate)
+    rather than inside the cached ``all_rankings`` build, so the count stays live
+    instead of being frozen until match/standings data next changes."""
+    rows = session.exec(
+        select(PageView.path, func.sum(PageView.count).label("views"))
+        .where(PageView.path.like("/bots/%"))
+        .group_by(PageView.path)
+    ).all()
+
+    views_by_bot: dict[int, int] = {}
+    for path, views in rows:
+        try:
+            bot_id = int(path.rsplit("/", 1)[1])
+        except ValueError:
+            continue  # not a /bots/<int> page (e.g. a future /bots/<id>/<sub> path)
+        views_by_bot[bot_id] = views_by_bot.get(bot_id, 0) + int(views)
+    if not views_by_bot:
+        return []
+
+    top = sorted(views_by_bot.items(), key=lambda kv: kv[1], reverse=True)[:limit]
+    bots = {
+        b.id: b
+        for b in session.exec(select(Bot).where(Bot.id.in_([bid for bid, _ in top]))).all()
+    }
+    out = []
+    for bot_id, views in top:
+        bot = bots.get(bot_id)
+        if bot is None:
+            continue  # viewed a bot page we no longer have a Bot row for
+        out.append(_row(bot.name, f"{views:,}", href=f"/bots/{bot_id}", race=bot.plays_race))
+    return out
 
 
 # ---------------------------------------------------------------------------

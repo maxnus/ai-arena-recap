@@ -415,3 +415,20 @@ def test_rankings_page_renders(client, session):
     assert "Top 10 Rankings" in resp.text
     assert "ELO &amp; Wins" in resp.text
     assert "Alpha" in resp.text
+
+
+def test_rankings_page_shows_most_viewed_card(client, session):
+    from datetime import date
+
+    from ai_arena_recap.models import PageView
+
+    _seed_base(session)
+    _seed_bot(session, 1, "Alpha", "T", created=datetime(2020, 1, 1, tzinfo=timezone.utc))
+    _seed_cp(session, 1, elo=1900, highest=1950)
+    session.add(PageView(path="/bots/1", day=date(2026, 5, 31), count=12))
+    session.commit()
+
+    resp = client.get("/rankings")
+    assert resp.status_code == 200
+    assert "Popularity" in resp.text
+    assert "Most viewed bots" in resp.text

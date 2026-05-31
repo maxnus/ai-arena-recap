@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import UniqueConstraint
 from sqlmodel import Field, SQLModel
@@ -104,3 +104,20 @@ class MatchParticipation(SQLModel, table=True):
     result: str | None = None
     result_cause: str | None = None
     last_synced: datetime
+
+
+class PageView(SQLModel, table=True):
+    """One daily hit counter per request path.
+
+    Generic by design — keyed on the raw URL path (``/bots/123``, ``/rankings``,
+    ``/``), so every page is tracked without per-page wiring. One row per
+    (path, day) keeps the table tiny while still supporting both all-time totals
+    and time-windowed queries. Written by the page-view middleware (crawlers and
+    non-HTML responses excluded); see ``web/app.py``."""
+    __tablename__ = "page_view"
+    __table_args__ = (UniqueConstraint("path", "day", name="uq_pageview_path_day"),)
+
+    id: int = Field(primary_key=True)
+    path: str
+    day: date
+    count: int = 0

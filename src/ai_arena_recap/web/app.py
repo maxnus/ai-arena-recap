@@ -4,15 +4,18 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
 from sqlmodel import Session, func, select
+from starlette.concurrency import run_in_threadpool
 
 from ai_arena_recap.config import settings
 from ai_arena_recap.db import engine, init_db
 from ai_arena_recap.models import Bot, Competition, Match, Round
+from ai_arena_recap.sync.common import utcnow
 from ai_arena_recap.sync.replays import sync_replays
 from ai_arena_recap.sync.runner import sync_all
 from ai_arena_recap.web.routes import api, bot, ladder, match, rankings
@@ -25,6 +28,61 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 log = logging.getLogger(__name__)
 
 WEB_DIR = Path(__file__).resolve().parent
+
+# Substrings that mark a user agent as a crawler/bot rather than a human reader.
+# Lower-cased before matching. "bot" catches Googlebot/bingbot/AhrefsBot/etc.;
+# no normal browser UA contains it.
+_CRAWLER_UA_MARKERS = (
+    "bot", "spider", "crawl", "slurp", "mediapartners",
+    "facebookexternalhit", "embedly", "preview", "monitor", "uptime",
+)
+
+
+def _is_crawler(user_agent: str) -> bool:
+    ua = user_agent.lower()
+    return any(marker in ua for marker in _CRAWLER_UA_MARKERS)
+
+
+def _should_count(request: Request, response) -> bool:
+    """Only count human page views: successful GETs of HTML pages. This filters
+    out static assets, JSON API/healthz responses (non-HTML content types), 404s
+    for missing bots (non-200), and known crawlers."""
+    if request.method != "GET" or response.status_code != 200:
+        return False
+    if not response.headers.get("content-type", "").startswith("text/html"):
+        return False
+    return not _is_crawler(request.headers.get("user-agent", ""))
+
+
+def record_page_view(path: str) -> None:
+    """Bump today's view counter for ``path`` (upsert on the (path, day) pair).
+
+    Best-effort: never lets an analytics write break a page load. References the
+    module-level ``engine`` by name so the test suite's monkeypatched engine is
+    picked up. Blocking DB I/O — call it off the event loop (see the middleware)."""
+    today = utcnow().date().isoformat()
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO page_view (path, day, count) VALUES (:path, :day, 1) "
+                    "ON CONFLICT(path, day) DO UPDATE SET count = count + 1"
+                ),
+                {"path": path, "day": today},
+            )
+    except Exception:  # noqa: BLE001 - page-view tracking must never break a request
+        log.exception("Failed to record page view for %s", path)
+
+
+async def page_view_middleware(request: Request, call_next):
+    """Record a view for each rendered HTML page. The counter write runs in a
+    threadpool so the SQLite I/O doesn't block the event loop. (A response
+    BackgroundTask would be lighter, but Starlette's BaseHTTPMiddleware doesn't
+    reliably run a background set on the call_next response.)"""
+    response = await call_next(request)
+    if _should_count(request, response):
+        await run_in_threadpool(record_page_view, request.url.path)
+    return response
 
 
 async def _scheduled_sync() -> None:
@@ -95,6 +153,7 @@ def create_app() -> FastAPI:
             "localhost",
         ],
     )
+    app.middleware("http")(page_view_middleware)
     app.mount("/static", StaticFiles(directory=str(WEB_DIR / "static")), name="static")
 
     app.include_router(ladder.router)
