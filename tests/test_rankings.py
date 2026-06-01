@@ -430,5 +430,7 @@ def test_rankings_page_shows_most_viewed_card(client, session):
 
     resp = client.get("/rankings")
     assert resp.status_code == 200
-    assert "Popularity" in resp.text
+    # The card lives inside the Community group, not a group of its own.
+    assert "Community" in resp.text
+    assert "Popularity" not in resp.text
     assert "Most viewed bots" in resp.text

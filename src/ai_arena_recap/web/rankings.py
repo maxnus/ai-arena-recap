@@ -547,7 +547,7 @@ def biggest_upsets(session, *, limit=TOP_N) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Longevity / community
+# Community (longevity + authors)
 # ---------------------------------------------------------------------------
 
 def _bots_by_date(session, column, *, descending: bool, limit=TOP_N) -> list[dict]:
@@ -597,7 +597,8 @@ def top_authors_by_mean_elo(session, *, limit=TOP_N, min_bots=AUTHOR_MIN_BOTS) -
 
 
 # ---------------------------------------------------------------------------
-# Popularity (page views — not part of the cached build; see all_rankings)
+# Page views — not part of the cached build; the route splices this card into
+# the "Community" group fresh per request (see web/routes/rankings.py).
 # ---------------------------------------------------------------------------
 
 def most_viewed_bots(session: Session, *, limit: int = TOP_N) -> list[dict]:
@@ -735,7 +736,7 @@ def _build_rankings(session: Session) -> list[dict]:
             ],
         },
         {
-            "title": "Longevity & community",
+            "title": "Community",
             "cards": [
                 {"title": "Oldest bots", "value_label": "Created",
                  "note": None, "rows": oldest_bots(session)},
