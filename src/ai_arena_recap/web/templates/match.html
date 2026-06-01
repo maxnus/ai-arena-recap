@@ -19,6 +19,7 @@
   </dl>
 
   <h2>Participants</h2>
+  <div class="table-scroll">
   <table class="participants">
     <thead>
       <tr>
@@ -57,6 +58,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
 
   <p class="actions">
     {% if match.result_type in ('MatchCancelled', 'InitializationError') %}

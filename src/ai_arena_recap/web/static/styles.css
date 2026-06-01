@@ -830,3 +830,45 @@ footer {
   color: var(--text);
   font-weight: 600;
 }
+
+/* Wraps a wide HTML table so it scrolls on its own rather than pushing the
+ * page sideways. No-op on desktop, where the table fits within `main`. */
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Mobile / narrow-viewport tweaks.                                         */
+/* Everything below is scoped to small screens via media queries, so the    */
+/* desktop layout defined above is left completely untouched. Breakpoint at */
+/* 768px covers phones and small tablets in portrait.                       */
+/* ------------------------------------------------------------------------ */
+@media (max-width: 768px) {
+  /* Tighter chrome so content gets more of a narrow viewport. */
+  header { padding: 0.55rem 0.8rem; }
+  main { margin: 0.8rem auto; padding: 0 0.8rem; }
+  footer { margin: 1.5rem auto 1rem; padding: 0 0.8rem; }
+  h1 { font-size: 1.5rem; }
+
+  /* Let the nav wrap instead of overflowing off-screen. The competition
+   * name is absolutely centred and would overlap the wrapped rows, so hide
+   * it here (the page <h1> carries the same context on the ladder). */
+  nav { flex-wrap: wrap; gap: 0.4rem 0.9rem; }
+  .comp-name { display: none; }
+  /* Search drops onto its own full-width row and stays easily tappable. */
+  .nav-right { width: 100%; margin-left: 0; }
+  .bot-search { width: 100%; }
+
+  /* Bot detail: stack the meta column above the ELO chart. */
+  .bot-header {
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+  .bot-header .elo-chart { min-height: 260px; }
+
+  /* Title row: drop the key-stat chips onto their own full-width row under
+   * the name/icon so they never crowd or clip against the right edge. */
+  .bot-title-block { flex-wrap: wrap; }
+  .bot-key-stats { margin-left: 0; flex-basis: 100%; }
+}
