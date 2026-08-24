@@ -1,5 +1,30 @@
 const DOWNLOAD_ICON = "⬇";
 
+// --- Season-scoped links ----------------------------------------------------
+// Archived seasons are served under /s/<slug>/, and <body data-season-base>
+// carries that prefix ("" on the current season). Every internal URL built in
+// JS goes through seasonUrl() so a visitor browsing an archived season stays
+// inside it. Read lazily: this file loads in <head>, before <body> exists.
+function seasonBase() {
+  return (document.body && document.body.dataset.seasonBase) || "";
+}
+
+function seasonUrl(path) {
+  return seasonBase() + path;
+}
+
+// The header <select> jumps to the same page in another season; each <option>
+// value is the ready-made path (see base.html).
+function initSeasonSwitch() {
+  const select = document.getElementById("season-switch");
+  if (!select) return;
+  select.addEventListener("change", () => {
+    if (select.value) window.location.href = select.value;
+  });
+}
+
+document.addEventListener("DOMContentLoaded", initSeasonSwitch);
+
 const NO_REPLAY_RESULT_TYPES = new Set(["MatchCancelled", "InitializationError"]);
 
 function matchHasReplay(r) {
@@ -200,7 +225,7 @@ function initBotSearch() {
       const elo = b.elo != null
         ? `<span class="bot-search-elo">${b.elo}</span>`
         : (b.highest_elo != null ? `<span class="bot-search-elo bot-search-elo-old">${b.highest_elo}</span>` : "");
-      return `<a class="bot-search-row${i === 0 ? " active" : ""}" role="option" data-index="${i}" href="/bots/${b.bot_id}">
+      return `<a class="bot-search-row${i === 0 ? " active" : ""}" role="option" data-index="${i}" href="${seasonUrl(`/bots/${b.bot_id}`)}">
         <span class="bot-search-race">${race}</span>
         <span class="bot-search-name">${escapeHtml(b.name)}</span>
         ${author}
@@ -229,7 +254,7 @@ function initBotSearch() {
     const ac = new AbortController();
     inflight = ac;
     try {
-      const res = await fetch(`/api/bots/search.json?q=${encodeURIComponent(query)}&limit=20`, { signal: ac.signal });
+      const res = await fetch(seasonUrl(`/api/bots/search.json?q=${encodeURIComponent(query)}&limit=20`), { signal: ac.signal });
       if (!res.ok) return;
       const body = await res.json();
       // Drop stale responses if the user kept typing.
@@ -265,7 +290,7 @@ function initBotSearch() {
     } else if (e.key === "Enter") {
       if (results.hidden || activeIndex < 0 || !currentItems[activeIndex]) return;
       e.preventDefault();
-      window.location.href = `/bots/${currentItems[activeIndex].bot_id}`;
+      window.location.href = seasonUrl(`/bots/${currentItems[activeIndex].bot_id}`);
     } else if (e.key === "Escape") {
       closeResults();
       input.blur();

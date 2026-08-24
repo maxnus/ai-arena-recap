@@ -21,7 +21,6 @@ from sqlalchemy import case, func, text
 from sqlalchemy.orm import aliased
 from sqlmodel import Session, select
 
-from ai_arena_recap.config import settings
 from ai_arena_recap.models import (
     Bot,
     CompetitionParticipation,
@@ -30,6 +29,7 @@ from ai_arena_recap.models import (
     PageView,
     Round,
 )
+from ai_arena_recap.web import season as season_mod
 from ai_arena_recap.web.queries import RACE_ELO_K, STEPS_PER_SECOND, WLT_RESULTS, _win_rate
 
 log = logging.getLogger(__name__)
@@ -74,9 +74,9 @@ def _active(query):
         query.join(
             CompetitionParticipation,
             (CompetitionParticipation.bot_id == Bot.id)
-            & (CompetitionParticipation.competition_id == settings.competition_id),
+            & (CompetitionParticipation.competition_id == season_mod.cid()),
         )
-        .where(CompetitionParticipation.active == True)  # noqa: E712
+        .where(season_mod.ladder_filter())
     )
 
 
@@ -102,7 +102,7 @@ def _per_bot_match_stats(session: Session, *, min_matches: int = MIN_MATCHES) ->
             .join(Match, Match.id == MatchParticipation.match_id)
             .join(Round, Round.id == Match.round_id)
         )
-        .where(Round.competition_id == settings.competition_id)
+        .where(Round.competition_id == season_mod.cid())
         .where(MatchParticipation.result.in_(WLT_RESULTS))
         .group_by(Bot.id, Bot.name, Bot.plays_race)
         .having(n >= min_matches)
@@ -146,8 +146,8 @@ def _elo_by_bot(session: Session) -> dict[int, int]:
     cp = CompetitionParticipation
     rows = session.exec(
         select(cp.bot_id, cp.elo)
-        .where(cp.competition_id == settings.competition_id)
-        .where(cp.active == True)  # noqa: E712
+        .where(cp.competition_id == season_mod.cid())
+        .where(season_mod.ladder_filter())
         .where(cp.elo.is_not(None))
     ).all()
     return {bot_id: elo for bot_id, elo in rows}
@@ -229,7 +229,7 @@ def _winrate_by_opprace(session: Session) -> list:
             .join(Opp, (Opp.match_id == Match.id) & (Opp.bot_id != Bot.id))
             .join(OppBot, OppBot.id == Opp.bot_id)
         )
-        .where(Round.competition_id == settings.competition_id)
+        .where(Round.competition_id == season_mod.cid())
         .where(MatchParticipation.result.in_(WLT_RESULTS))
         .where(OppBot.plays_race.in_(("T", "Z", "P")))
         .group_by(Bot.id, Bot.name, Bot.plays_race, OppBot.plays_race)
@@ -243,7 +243,7 @@ def _race_elo_all(session: Session) -> dict[int, dict]:
 
     Returns {bot_id: {"name", "race", "elo": {race: rating}, "n": {race: games}}}
     covering only the races the bot has actually faced."""
-    rows = session.exec(text("""
+    rows = session.exec(text(f"""
         SELECT mp.bot_id AS bot_id, subj.name AS subj_name, subj.plays_race AS subj_race,
                mp.result AS result, opp_bot.plays_race AS race,
                opp_mp.starting_elo AS opp_elo, mp.starting_elo AS bot_starting_elo
@@ -251,7 +251,7 @@ def _race_elo_all(session: Session) -> dict[int, dict]:
         JOIN match m ON m.id = mp.match_id
         JOIN round r ON r.id = m.round_id
         JOIN competition_participation cp
-          ON cp.bot_id = mp.bot_id AND cp.competition_id = :cid AND cp.active = 1
+          ON cp.bot_id = mp.bot_id AND cp.competition_id = :cid AND {season_mod.ladder_sql("cp")}
         JOIN bot subj ON subj.id = mp.bot_id
         JOIN match_participation opp_mp
           ON opp_mp.match_id = m.id AND opp_mp.bot_id != mp.bot_id
@@ -262,7 +262,7 @@ def _race_elo_all(session: Session) -> dict[int, dict]:
           AND opp_mp.starting_elo IS NOT NULL
           AND opp_bot.plays_race IS NOT NULL
         ORDER BY mp.bot_id, r.number, m.started, m.id
-    """), params={"cid": settings.competition_id}).all()
+    """), params={"cid": season_mod.cid()}).all()
 
     out: dict[int, dict] = {}
     for bot_id, group in groupby(rows, key=lambda x: x[0]):
@@ -324,8 +324,8 @@ def strongest_of_race(session, race, *, limit=TOP_N) -> list[dict]:
     rows = session.exec(
         select(Bot.id, Bot.name, Bot.plays_race, CompetitionParticipation.elo)
         .join(CompetitionParticipation, CompetitionParticipation.bot_id == Bot.id)
-        .where(CompetitionParticipation.competition_id == settings.competition_id)
-        .where(CompetitionParticipation.active == True)  # noqa: E712
+        .where(CompetitionParticipation.competition_id == season_mod.cid())
+        .where(season_mod.ladder_filter())
         .where(Bot.plays_race == race)
         .where(CompetitionParticipation.elo.is_not(None))
         .order_by(CompetitionParticipation.elo.desc())
@@ -342,8 +342,8 @@ def highest_peak_elo(session, *, limit=TOP_N) -> list[dict]:
     rows = session.exec(
         select(Bot.id, Bot.name, Bot.plays_race, CompetitionParticipation.highest_elo)
         .join(CompetitionParticipation, CompetitionParticipation.bot_id == Bot.id)
-        .where(CompetitionParticipation.competition_id == settings.competition_id)
-        .where(CompetitionParticipation.active == True)  # noqa: E712
+        .where(CompetitionParticipation.competition_id == season_mod.cid())
+        .where(season_mod.ladder_filter())
         .where(CompetitionParticipation.highest_elo.is_not(None))
         .order_by(CompetitionParticipation.highest_elo.desc())
         .limit(limit)
@@ -356,8 +356,8 @@ def highest_win_rate(session, *, limit=TOP_N, min_matches=MIN_MATCHES) -> list[d
     rows = session.exec(
         select(Bot.id, Bot.name, Bot.plays_race, cp.win_perc)
         .join(cp, cp.bot_id == Bot.id)
-        .where(cp.competition_id == settings.competition_id)
-        .where(cp.active == True)  # noqa: E712
+        .where(cp.competition_id == season_mod.cid())
+        .where(season_mod.ladder_filter())
         .where(cp.win_perc.is_not(None))
         .where(cp.match_count >= min_matches)
         .order_by(cp.win_perc.desc())
@@ -373,8 +373,8 @@ def tie_rate(session, *, limit=TOP_N, min_matches=MIN_MATCHES) -> list[dict]:
     rows = session.exec(
         select(Bot.id, Bot.name, Bot.plays_race, rate.label("rate"))
         .join(cp, cp.bot_id == Bot.id)
-        .where(cp.competition_id == settings.competition_id)
-        .where(cp.active == True)  # noqa: E712
+        .where(cp.competition_id == season_mod.cid())
+        .where(season_mod.ladder_filter())
         .where(cp.match_count >= min_matches)
         .order_by(rate.desc())
         .limit(limit)
@@ -391,8 +391,8 @@ def most_decisive(session, *, limit=TOP_N, min_matches=MIN_MATCHES) -> list[dict
     rows = session.exec(
         select(Bot.id, Bot.name, Bot.plays_race, rate.label("rate"))
         .join(cp, cp.bot_id == Bot.id)
-        .where(cp.competition_id == settings.competition_id)
-        .where(cp.active == True)  # noqa: E712
+        .where(cp.competition_id == season_mod.cid())
+        .where(season_mod.ladder_filter())
         .where(cp.match_count >= min_matches)
         .order_by(rate.asc(), cp.match_count.desc())
         .limit(limit)
@@ -409,7 +409,7 @@ def elo_volatility(session, *, limit=TOP_N, min_rounds=MIN_ROUNDS) -> list[dict]
     round-to-round *deltas* rather than the ELO level means a bot that climbs
     steadily reads as calm, while one that yo-yos up and down scores high — the
     actual "rollercoaster" we want, not just a measure of total range."""
-    rows = session.exec(text("""
+    rows = session.exec(text(f"""
         WITH ranked_matches AS (
             SELECT m.round_id, mp.bot_id, mp.resultant_elo,
                    ROW_NUMBER() OVER (
@@ -428,11 +428,11 @@ def elo_volatility(session, *, limit=TOP_N, min_rounds=MIN_ROUNDS) -> list[dict]
         FROM ranked_matches rm
         JOIN round r ON r.id = rm.round_id
         JOIN competition_participation cp
-          ON cp.bot_id = rm.bot_id AND cp.competition_id = :cid AND cp.active = 1
+          ON cp.bot_id = rm.bot_id AND cp.competition_id = :cid AND {season_mod.ladder_sql("cp")}
         JOIN bot b ON b.id = rm.bot_id
         WHERE rm.rn = 1
         ORDER BY rm.bot_id, r.number
-    """), params={"cid": settings.competition_id}).all()
+    """), params={"cid": season_mod.cid()}).all()
 
     ranked = []
     for bot_id, group in groupby(rows, key=lambda x: x[0]):
@@ -460,7 +460,7 @@ def longest_win_streak(session, *, limit=TOP_N) -> list[dict]:
             .join(Match, Match.id == MatchParticipation.match_id)
             .join(Round, Round.id == Match.round_id)
         )
-        .where(Round.competition_id == settings.competition_id)
+        .where(Round.competition_id == season_mod.cid())
         .where(MatchParticipation.result.in_(WLT_RESULTS))
         .order_by(Bot.id, Match.started, Match.id)
     ).all()
@@ -496,7 +496,7 @@ def giant_killers(session, *, limit=TOP_N, margin=UPSET_MARGIN) -> list[dict]:
             .join(Round, Round.id == Match.round_id)
             .join(Opp, (Opp.match_id == Match.id) & (Opp.bot_id != Bot.id))
         )
-        .where(Round.competition_id == settings.competition_id)
+        .where(Round.competition_id == season_mod.cid())
         .where(MatchParticipation.result == "win")
         .where(MatchParticipation.starting_elo.is_not(None))
         .where(Opp.starting_elo.is_not(None))
@@ -530,7 +530,7 @@ def biggest_upsets(session, *, limit=TOP_N) -> list[dict]:
         .join(Loser, (Loser.match_id == Match.id) & (Loser.bot_id != Winner.bot_id))
         .join(WinnerBot, WinnerBot.id == Winner.bot_id)
         .join(LoserBot, LoserBot.id == Loser.bot_id)
-        .where(Round.competition_id == settings.competition_id)
+        .where(Round.competition_id == season_mod.cid())
         .where(Winner.result == "win")
         .where(Winner.starting_elo.is_not(None))
         .where(Loser.starting_elo.is_not(None))
@@ -584,8 +584,8 @@ def top_authors_by_mean_elo(session, *, limit=TOP_N, min_bots=AUTHOR_MIN_BOTS) -
     rows = session.exec(
         select(Bot.user_name, cnt.label("c"), mean_elo.label("mean_elo"))
         .join(cp, cp.bot_id == Bot.id)
-        .where(cp.competition_id == settings.competition_id)
-        .where(cp.active == True)  # noqa: E712
+        .where(cp.competition_id == season_mod.cid())
+        .where(season_mod.ladder_filter())
         .where(Bot.user_name.is_not(None))
         .where(cp.elo.is_not(None))
         .group_by(Bot.user_name)
@@ -644,8 +644,14 @@ def most_viewed_bots(session: Session, *, limit: int = TOP_N) -> list[dict]:
 # Assembly (+ per-sync cache)
 # ---------------------------------------------------------------------------
 
-_CACHE: dict = {"key": None, "value": None}
+# One slot per competition id: browsing an archived season alongside the
+# current one must not evict the other's build on every request.
+_CACHE: dict[int, dict] = {}
 _CACHE_LOCK = threading.Lock()
+
+
+def _cache_slot(cid: int) -> dict:
+    return _CACHE.setdefault(cid, {"key": None, "value": None})
 
 
 def _build_rankings(session: Session) -> list[dict]:
@@ -761,7 +767,9 @@ def _data_version(session: Session):
     actually change anything (unlike ``Competition.last_synced``, which bumps
     every cycle). A handful of indexed COUNT/SUM/MAX aggregates, far cheaper
     than a full rebuild, so it's fine to run on every page view and every sync."""
-    cid = settings.competition_id
+    season = season_mod.current()
+    cid = season.id
+    ladder = season_mod.ladder_sql("cp")
     matches = session.exec(text(
         "SELECT COUNT(*), COALESCE(MAX(m.id), 0) "
         "FROM match m JOIN round r ON r.id = m.round_id "
@@ -771,14 +779,16 @@ def _data_version(session: Session):
         "SELECT COUNT(*), COALESCE(SUM(elo), 0), COALESCE(SUM(highest_elo), 0), "
         "COALESCE(SUM(win_count), 0), COALESCE(SUM(tie_count), 0), "
         "COALESCE(SUM(match_count), 0) "
-        "FROM competition_participation WHERE competition_id = :cid AND active = 1"
+        "FROM competition_participation cp WHERE cp.competition_id = :cid AND " + ladder
     ), params={"cid": cid}).first()
     bots = session.exec(text(
         "SELECT COUNT(*), COALESCE(MAX(b.created), ''), COALESCE(MAX(b.bot_zip_updated), '') "
         "FROM bot b JOIN competition_participation cp "
-        "  ON cp.bot_id = b.id AND cp.competition_id = :cid AND cp.active = 1"
+        "  ON cp.bot_id = b.id AND cp.competition_id = :cid AND " + ladder
     ), params={"cid": cid}).first()
-    return (cid, tuple(matches), tuple(standings), tuple(bots))
+    # `closed` is part of the key because it changes which rows count as the
+    # ladder (see season.ladder_filter), not just their values.
+    return (cid, season.closed, tuple(matches), tuple(standings), tuple(bots))
 
 
 def all_rankings(session: Session) -> list[dict]:
@@ -788,14 +798,15 @@ def all_rankings(session: Session) -> list[dict]:
     rebuilds (the ~20 aggregate queries). Double-checked locking means a cold
     cache hit by several concurrent requests only triggers one rebuild."""
     key = _data_version(session)
-    if _CACHE["key"] == key and _CACHE["value"] is not None:
-        return _CACHE["value"]
+    slot = _cache_slot(season_mod.cid())
+    if slot["key"] == key and slot["value"] is not None:
+        return slot["value"]
     with _CACHE_LOCK:
-        if _CACHE["key"] == key and _CACHE["value"] is not None:
-            return _CACHE["value"]
+        if slot["key"] == key and slot["value"] is not None:
+            return slot["value"]
         value = _build_rankings(session)
-        _CACHE["key"] = key
-        _CACHE["value"] = value
+        slot["key"] = key
+        slot["value"] = value
         return value
 
 

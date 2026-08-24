@@ -14,7 +14,7 @@
 
   <script>
     document.addEventListener("DOMContentLoaded", async () => {
-      const res = await fetch("/api/ladder.json");
+      const res = await fetch(seasonUrl("/api/ladder.json"));
       const { data, awaiting } = await res.json();
 
       const gridOptions = {
@@ -42,7 +42,7 @@
             headerName: "Bot", field: "name", width: 150, minWidth: 120, filter: "agTextColumnFilter",
             cellRenderer: (p) => {
               const r = p.data;
-              return `<a href="/bots/${r.bot_id}">${escapeHtml(r.name)}</a>`;
+              return `<a href="${seasonUrl(`/bots/${r.bot_id}`)}">${escapeHtml(r.name)}</a>`;
             },
           },
           {
@@ -101,7 +101,7 @@
           if (event.event.target.closest("a")) return;
           const botId = event.data && event.data.bot_id;
           if (!botId) return;
-          const url = `/bots/${botId}`;
+          const url = seasonUrl(`/bots/${botId}`);
           if (event.event.ctrlKey || event.event.metaKey || event.event.button === 1) {
             window.open(url, "_blank");
           } else {
@@ -147,7 +147,7 @@
           columnDefs: [
             {
               headerName: "Bot", field: "name", width: 200, filter: "agTextColumnFilter",
-              cellRenderer: (p) => `<a href="/bots/${p.data.bot_id}">${escapeHtml(p.data.name)}</a>`,
+              cellRenderer: (p) => `<a href="${seasonUrl(`/bots/${p.data.bot_id}`)}">${escapeHtml(p.data.name)}</a>`,
             },
             {
               headerName: "Race", field: "race", width: 130, filter: "agTextColumnFilter",
@@ -169,7 +169,7 @@
             if (event.event.target.closest("a")) return;
             const botId = event.data && event.data.bot_id;
             if (!botId) return;
-            const url = `/bots/${botId}`;
+            const url = seasonUrl(`/bots/${botId}`);
             if (event.event.ctrlKey || event.event.metaKey || event.event.button === 1) {
               window.open(url, "_blank");
             } else {

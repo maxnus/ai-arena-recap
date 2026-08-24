@@ -15,7 +15,15 @@ class Settings(BaseSettings):
 
     aiarena_api_token: str
     aiarena_bot_id: int | None = None
-    competition_id: int = 36
+    # The competition the site serves at its un-prefixed URLs. Every other
+    # competition in the DB stays browsable as an archived season under
+    # /s/<slug>/ — see web/season.py. Bump this at each season rollover (the
+    # sync logs a warning and /healthz reports competition_closed when the
+    # tracked competition ends).
+    competition_id: int = 37
+    # Closed seasons never change, so re-sync them at most this often. Cheap
+    # insurance that a season archived mid-sync still completes itself.
+    archive_refresh_seconds: int = 86400
     api_base_url: str = "https://aiarena.net/api"
 
     db_path: Path = Field(default=PROJECT_ROOT / "data" / "recap.sqlite")

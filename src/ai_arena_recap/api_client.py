@@ -74,6 +74,10 @@ class AiArenaClient:
     async def get_competition(self, competition_id: int) -> dict[str, Any]:
         return await self._get(f"{self.base_url}/competitions/{competition_id}/", {"format": "json"})
 
+    async def list_competitions(self) -> AsyncIterator[dict[str, Any]]:
+        async for item in self._paginate("/competitions/", {}):
+            yield item
+
     async def list_competition_participations(self, competition_id: int) -> AsyncIterator[dict[str, Any]]:
         async for item in self._paginate(
             "/competition-participations/", {"competition": competition_id}

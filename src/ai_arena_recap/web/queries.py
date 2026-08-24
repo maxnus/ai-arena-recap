@@ -9,9 +9,9 @@ from sqlalchemy import case, func, text
 from sqlalchemy.orm import aliased
 from sqlmodel import Session, select
 
-from ai_arena_recap.config import settings
 from ai_arena_recap.models import Bot, CompetitionParticipation, Match, MatchParticipation, Round
 from ai_arena_recap.sync.common import utcnow
+from ai_arena_recap.web import season as season_mod
 
 # Per-opponent matchup window.
 MATCHUP_WINDOW_DAYS = 60
@@ -46,7 +46,7 @@ def _win_rate(wins: int, ties: int, matches: int) -> float | None:
 
 
 def winrate_by_race(session: Session, bot_id: int) -> dict[str, dict]:
-    """Per-opponent-race W/L/T totals across the current competition."""
+    """Per-opponent-race W/L/T totals across the season being viewed."""
     Opp = aliased(MatchParticipation)
     OppBot = aliased(Bot)
     matches, wins, losses, ties = _wlt_aggregates()
@@ -64,7 +64,7 @@ def winrate_by_race(session: Session, bot_id: int) -> dict[str, dict]:
         .join(Opp, (Opp.match_id == Match.id) & (Opp.bot_id != bot_id))
         .join(OppBot, OppBot.id == Opp.bot_id)
         .where(MatchParticipation.bot_id == bot_id)
-        .where(Round.competition_id == settings.competition_id)
+        .where(Round.competition_id == season_mod.cid())
         .where(MatchParticipation.result.in_(WLT_RESULTS))
         .group_by(OppBot.plays_race)
     ).all()
@@ -199,8 +199,8 @@ def bot_current_rank(session: Session, bot_id: int) -> int | None:
     active, placed participant of the current competition."""
     rows = session.exec(
         select(CompetitionParticipation.bot_id)
-        .where(CompetitionParticipation.competition_id == settings.competition_id)
-        .where(CompetitionParticipation.active == True)  # noqa: E712
+        .where(CompetitionParticipation.competition_id == season_mod.cid())
+        .where(season_mod.ladder_filter())
         .where(CompetitionParticipation.division_num > 0)
         .order_by(
             CompetitionParticipation.division_num.asc(),
@@ -247,7 +247,7 @@ def bot_rank_history(session: Session, bot_id: int) -> list[dict]:
         JOIN round r ON r.id = ranked.round_id
         WHERE ranked.bot_id = :bot_id
         ORDER BY r.number
-    """), params={"competition_id": settings.competition_id, "bot_id": bot_id}).all()
+    """), params={"competition_id": season_mod.cid(), "bot_id": bot_id}).all()
 
     return [
         {"round_number": int(r[0]), "rank": int(r[1]), "end_elo": float(r[2])}
@@ -268,7 +268,7 @@ def bot_avg_match_stats(session: Session, bot_id: int) -> dict:
         .join(Match, Match.id == MatchParticipation.match_id)
         .join(Round, Round.id == Match.round_id)
         .where(MatchParticipation.bot_id == bot_id)
-        .where(Round.competition_id == settings.competition_id)
+        .where(Round.competition_id == season_mod.cid())
         .where(MatchParticipation.result.in_(WLT_RESULTS))
     ).one()
     avg_steps, avg_step_time = row
@@ -284,7 +284,7 @@ def competition_round_ends(session: Session) -> dict[int, str]:
     the bot detail chart's x-axis with the end date of each round."""
     rows = session.exec(
         select(Round.number, Round.finished)
-        .where(Round.competition_id == settings.competition_id)
+        .where(Round.competition_id == season_mod.cid())
         .where(Round.complete == True)  # noqa: E712
         .where(Round.finished.is_not(None))  # type: ignore[union-attr]
         .order_by(Round.number)
@@ -302,7 +302,7 @@ def round_position_for_timestamp(session: Session, ts) -> float | None:
         return None
     rows = session.exec(
         select(Round.number, Round.finished)
-        .where(Round.competition_id == settings.competition_id)
+        .where(Round.competition_id == season_mod.cid())
         .where(Round.complete == True)  # noqa: E712
         .where(Round.finished.is_not(None))  # type: ignore[union-attr]
         .order_by(Round.finished)
@@ -368,7 +368,7 @@ def bot_race_elo_history(session: Session, bot_id: int) -> list[dict]:
           AND opp_mp.starting_elo IS NOT NULL
           AND opp_bot.plays_race IS NOT NULL
         ORDER BY r.number, m.started, m.id
-    """), params={"competition_id": settings.competition_id, "bot_id": bot_id}).all()
+    """), params={"competition_id": season_mod.cid(), "bot_id": bot_id}).all()
 
     if not rows:
         return []

@@ -31,6 +31,12 @@ def sync_cmd(
         None, "--max-rounds", help="Limit to the N most recent rounds (omit for all rounds)."
     ),
     force_bots: bool = typer.Option(False, "--force-bots", help="Refresh every referenced bot, even if recently synced."),
+    competition: int | None = typer.Option(
+        None,
+        "--competition",
+        help="Sync this competition instead of the tracked one — use it to import a past season "
+             "into the archive (it stays browsable at /s/<slug>/).",
+    ),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
 ):
     """Run an incremental sync against aiarena.net."""
@@ -39,7 +45,7 @@ def sync_cmd(
     from ai_arena_recap.sync.runner import sync_all
 
     init_db()
-    asyncio.run(sync_all(max_rounds=max_rounds, force_bots=force_bots))
+    asyncio.run(sync_all(max_rounds=max_rounds, force_bots=force_bots, competition_id=competition))
 
 
 @app.command("sync-replays")

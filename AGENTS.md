@@ -5,6 +5,34 @@ Website that aggregates StarCraft 2 bot-vs-bot match data from
 dashboard. The site stays usable when the upstream API is down (except for
 direct replay downloads from S3).
 
+## Seasons
+
+Every page is scoped to one competition ("season"). The un-prefixed URLs serve
+the tracked one (`settings.competition_id`); every other competition in the DB
+stays browsable under `/s/<slug>/` (`/s/2026-season-1/bots/123`). `SeasonMiddleware`
+strips that prefix before routing and puts the resolved season in a ContextVar,
+so route/query code just calls `season.cid()` — see `web/season.py`.
+
+Two rules follow from that, and breaking either is the classic season bug:
+
+- Never read `settings.competition_id` in `web/` — use `season.cid()`, or the
+  page silently shows the live season's numbers under an archived URL.
+- Never filter on `CompetitionParticipation.active` directly — use
+  `season.ladder_filter()` / `season.ladder_sql()`. aiarena flips *every*
+  participation to `active = 0` when a competition closes (this emptied the live
+  ladder at the 2026 Season 1 rollover), so closed seasons fall back to final
+  division placement (`division_num > 0`).
+
+Internal links must carry `season_base` (templates) or go through `seasonUrl()`
+(JS), otherwise a click inside an archived season jumps back to the live one.
+
+**Season rollover runbook.** When aiarena closes a season it opens the next one
+the same day. The sync logs a warning naming the new competition and `/healthz`
+reports `competition_closed: true`; the site keeps serving the finished season's
+final standings until someone acts. To switch over, point `competition_id` at
+the new competition (code default or `COMPETITION_ID` in the VPS `.env`) — the
+old one becomes an archived season automatically, no data migration.
+
 ## Pages
 
 - **Ladder** (`/`) — current competition ranking with ELO, division, W/L/T/crash,
@@ -26,10 +54,15 @@ direct replay downloads from S3).
   - `api_client.py` — async httpx wrapper around the aiarena.net API with
     retry/backoff and a concurrency semaphore.
   - `sync/` — incremental sync from the API into the DB. `runner.sync_all`
-    is the entry point; called both by the scheduler and the `sync` CLI.
+    is the entry point; called both by the scheduler and the `sync` CLI. It
+    syncs the tracked competition plus any archived season due a refresh
+    (daily); `sync --competition <id>` imports one season on its own.
     `replays.py` runs separately and caches recent replay files locally.
   - `web/`
-    - `app.py` — FastAPI factory with lifespan-managed APScheduler.
+    - `app.py` — FastAPI factory with lifespan-managed APScheduler, the
+      page-view middleware and `SeasonMiddleware`.
+    - `season.py` — resolves which competition a request is about (see
+      **Seasons** above) and holds the ladder-membership predicate.
     - `routes/{ladder,bot,match,api}.py` — page + JSON endpoints.
     - `templates/` — Jinja2 (base, _macros, ladder, bot, match).
     - `static/` — `styles.css`, race SVGs, JS helpers.
@@ -98,6 +131,8 @@ fix the underlying issue (don't just rerun) and push again.
 
 - The app reads from the local DB only — no live API calls in route handlers.
   All network I/O lives in `sync/`.
+- Read the competition scope from `web.season`, never `settings.competition_id`
+  (see **Seasons**).
 - New API/JSON endpoints go under `/api/` and return `{"data": [...]}`-shaped
   responses for the AG Grid tables on the page.
 - Tests must not hit the network. `respx` is used to mock httpx where needed.

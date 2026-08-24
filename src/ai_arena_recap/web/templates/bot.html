@@ -35,7 +35,10 @@
           <dt>Data</dt>
           <dd>{{ 'enabled' if bot.bot_data_enabled else 'disabled' }}</dd>
         {% endif %}
-        {% if cp %}<dt>Status</dt><dd>{% if cp.active %}<span class="status-active">active</span>{% else %}<span class="status-inactive">inactive</span>{% endif %}{% if cp.in_placements %} <span class="muted">(in placements)</span>{% endif %}</dd>{% endif %}
+        {# On a closed season every participation is inactive (aiarena wipes the
+           flag at close), so "inactive" would say nothing about the bot — show
+           where it finished instead. #}
+        {% if cp %}<dt>Status</dt><dd>{% if season.closed %}<span class="status-inactive">season ended</span>{% elif cp.active %}<span class="status-active">active</span>{% else %}<span class="status-inactive">inactive</span>{% endif %}{% if cp.in_placements %} <span class="muted">(in placements)</span>{% endif %}</dd>{% endif %}
       </dl>
       {% if cp %}
       <dl class="bot-meta-col bot-meta-col-stats">
@@ -133,7 +136,7 @@
   <script>
     document.addEventListener("DOMContentLoaded", async () => {
       const botId = {{ bot.id }};
-      const res = await fetch(`/api/bots/${botId}/matches.json?page=1&size=10000`);
+      const res = await fetch(seasonUrl(`/api/bots/${botId}/matches.json?page=1&size=10000`));
       const { data } = await res.json();
       const downloadedReplays = loadDownloadedReplays();
 
@@ -165,7 +168,7 @@
       async function reloadMatchups() {
         const { windowDays, minGames } = readMatchupSettings();
         saveMatchupSettings({ windowDays, minGames });
-        const url = `/api/bots/${botId}/matchups.json?window_days=${windowDays}&min_games=${minGames}`;
+        const url = seasonUrl(`/api/bots/${botId}/matchups.json?window_days=${windowDays}&min_games=${minGames}`);
         const res = await fetch(url);
         const body = res.ok ? await res.json() : { data: [], window_days: windowDays };
         matchupsWindowDays = body.window_days || windowDays;
@@ -201,7 +204,7 @@
           columnDefs: [
             {
               headerName: "Opponent", field: "opp_name", width: 200, filter: "agTextColumnFilter",
-              cellRenderer: (p) => `<a href="/bots/${p.data.opp_id}">${escapeHtml(p.data.opp_name)}</a>`,
+              cellRenderer: (p) => `<a href="${seasonUrl(`/bots/${p.data.opp_id}`)}">${escapeHtml(p.data.opp_name)}</a>`,
             },
             {
               headerName: "Race", field: "opp_race", width: 140, filter: "agTextColumnFilter",
@@ -322,7 +325,7 @@
             if (e.event.target.closest("a")) return;
             const oppId = e.data && e.data.opp_id;
             if (!oppId) return;
-            const url = `/bots/${oppId}`;
+            const url = seasonUrl(`/bots/${oppId}`);
             if (e.event.ctrlKey || e.event.metaKey || e.event.button === 1) window.open(url, "_blank");
             else window.location.href = url;
           },
@@ -345,8 +348,8 @@
       // (only completed rounds, end-of-round resultant_elo, sort all bots by
       // that ELO for the rank). Fetched in parallel with the per-race ELO.
       const [rankRes, raceEloRes] = await Promise.all([
-        fetch(`/api/bots/${botId}/rank-history.json`),
-        fetch(`/api/bots/${botId}/race-elo-history.json`),
+        fetch(seasonUrl(`/api/bots/${botId}/rank-history.json`)),
+        fetch(seasonUrl(`/api/bots/${botId}/race-elo-history.json`)),
       ]);
       const rankData = rankRes.ok ? (await rankRes.json()).data : [];
       const rounds = rankData.map((r) => r.round_number);
@@ -554,7 +557,7 @@
               const r = p.data;
               if (!r) return "";
               if (!r.opponent_id) return "?";
-              return `<a href="/bots/${r.opponent_id}">${escapeHtml(r.opponent_name)}</a>`;
+              return `<a href="${seasonUrl(`/bots/${r.opponent_id}`)}">${escapeHtml(r.opponent_name)}</a>`;
             },
           },
           {
@@ -597,7 +600,7 @@
               const r = p.data;
               if (!matchHasReplay(r)) return "";
               const cls = downloadedReplays.has(r.match_id) ? "icon-button downloaded" : "icon-button";
-              return `<a class="${cls}" data-match-id="${r.match_id}" href="/matches/${r.match_id}/replay" title="Download replay"><span class="glyph">${DOWNLOAD_ICON}</span></a>`;
+              return `<a class="${cls}" data-match-id="${r.match_id}" href="${seasonUrl(`/matches/${r.match_id}/replay`)}" title="Download replay"><span class="glyph">${DOWNLOAD_ICON}</span></a>`;
             },
           },
         ],
@@ -607,7 +610,7 @@
           if (event.event.target.closest("a")) return;
           const matchId = event.data && event.data.match_id;
           if (!matchId) return;
-          const url = `/matches/${matchId}`;
+          const url = seasonUrl(`/matches/${matchId}`);
           if (event.event.ctrlKey || event.event.metaKey || event.event.button === 1) {
             window.open(url, "_blank");
           } else {

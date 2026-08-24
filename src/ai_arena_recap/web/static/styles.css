@@ -46,6 +46,44 @@ nav { display: flex; align-items: center; gap: 1rem; position: relative; }
   pointer-events: none;
 }
 
+/* Season switcher: sits where the competition name used to, and keeps the
+ * same centred look, but is a real <select> so archived seasons are one click
+ * away. Only rendered when the DB holds more than one competition. */
+.season-switch {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: min(44vw, 520px);
+  font: inherit;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 0.1rem 0.3rem;
+  cursor: pointer;
+  color-scheme: dark;  /* dark native dropdown to match the page */
+}
+.season-switch:hover,
+.season-switch:focus {
+  border-color: var(--border);
+  background: var(--panel);
+}
+
+/* Banner above the page content when the season on screen isn't the live one. */
+.season-banner {
+  margin: 0 0 1rem;
+  padding: 0.55rem 0.8rem;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+.season-banner strong { color: var(--text); }
+
 /* --- Bot search box (header) --- */
 .nav-right {
   display: flex;
@@ -856,6 +894,16 @@ footer {
    * it here (the page <h1> carries the same context on the ladder). */
   nav { flex-wrap: wrap; gap: 0.4rem 0.9rem; }
   .comp-name { display: none; }
+  /* The switcher is a control, not decoration, so it stays — dropped into the
+   * wrapped nav flow at nav-link size instead of being centred over it. */
+  .season-switch {
+    position: static;
+    transform: none;
+    max-width: 100%;
+    font-size: 0.9rem;
+    font-weight: 400;
+    color: var(--muted);
+  }
   /* Search drops onto its own full-width row and stays easily tappable. */
   .nav-right { width: 100%; margin-left: 0; }
   .bot-search { width: 100%; }

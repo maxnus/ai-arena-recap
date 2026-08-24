@@ -6,9 +6,9 @@ from sqlalchemy import case
 from sqlalchemy.orm import aliased
 from sqlmodel import Session, func, select
 
-from ai_arena_recap.config import settings
 from ai_arena_recap.models import Bot, CompetitionParticipation, Map, Match, MatchParticipation, Round
 from ai_arena_recap.sync.common import utcnow
+from ai_arena_recap.web import season as season_mod
 from ai_arena_recap.web.deps import get_session
 from ai_arena_recap.web.queries import (
     MATCHUP_MIN_GAMES,
@@ -28,8 +28,8 @@ def ladder_json(session: Session = Depends(get_session)) -> dict[str, Any]:
     rows = session.exec(
         select(CompetitionParticipation, Bot)
         .join(Bot, CompetitionParticipation.bot_id == Bot.id)
-        .where(CompetitionParticipation.competition_id == settings.competition_id)
-        .where(CompetitionParticipation.active == True)  # noqa: E712
+        .where(CompetitionParticipation.competition_id == season_mod.cid())
+        .where(season_mod.ladder_filter())
         .order_by(
             CompetitionParticipation.division_num.asc().nullslast(),
             CompetitionParticipation.elo.desc().nullslast(),
@@ -47,7 +47,7 @@ def ladder_json(session: Session = Depends(get_session)) -> dict[str, Any]:
         )
         .join(Match, Match.id == MatchParticipation.match_id)
         .join(Round, Round.id == Match.round_id)
-        .where(Round.competition_id == settings.competition_id)
+        .where(Round.competition_id == season_mod.cid())
         .where(MatchParticipation.result.in_(WLT_RESULTS))
         .group_by(MatchParticipation.bot_id)
     ).all()
@@ -126,7 +126,7 @@ def bot_search_json(
         .outerjoin(
             CompetitionParticipation,
             (CompetitionParticipation.bot_id == Bot.id)
-            & (CompetitionParticipation.competition_id == settings.competition_id),
+            & (CompetitionParticipation.competition_id == season_mod.cid()),
         )
         .where(name_lower.like(contains_pattern, escape="\\"))
         .order_by(

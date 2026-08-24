@@ -30,11 +30,9 @@ def _clear_rankings_cache():
     # The rankings cache is a module-global keyed on a data fingerprint. Two
     # tests with coincidentally-equal fingerprints (e.g. both an empty DB) could
     # otherwise share a stale entry, so reset it around every test.
-    rankings._CACHE["key"] = None
-    rankings._CACHE["value"] = None
+    rankings._CACHE.clear()
     yield
-    rankings._CACHE["key"] = None
-    rankings._CACHE["value"] = None
+    rankings._CACHE.clear()
 
 
 @pytest.fixture()
@@ -387,11 +385,11 @@ def test_warm_rankings_populates_cache(engine, session):
     _seed_cp(session, 1, elo=1900, highest=1950)
     session.commit()
 
-    assert rankings._CACHE["value"] is None
+    assert rankings._cache_slot(COMP)["value"] is None
     rankings.warm_rankings()  # opens its own session via the (patched) engine
-    assert rankings._CACHE["value"] is not None
+    assert rankings._cache_slot(COMP)["value"] is not None
     # A subsequent page build reuses the warmed cache (no rebuild).
-    assert rankings.all_rankings(session) is rankings._CACHE["value"]
+    assert rankings.all_rankings(session) is rankings._cache_slot(COMP)["value"]
 
 
 def test_warm_rankings_never_raises(monkeypatch):

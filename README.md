@@ -7,6 +7,8 @@ Code behind [aiarenarecap.com](https://aiarenarecap.com), a website that aggrega
 - **Ladder rankings** with ELO ratings, division placement, and win/loss stats
 - **Bot detail pages** with match history, head-to-head matchup records, and performance trends
 - **Match pages** with game details and replay downloads
+- **Season archive** -- finished seasons stay browsable at `/s/<slug>/` (e.g.
+  `/s/2026-season-1/`), with their own ladder, rankings and bot pages
 - **Background sync** periodically fetches updates from the aiarena.net API
 - **Offline-capable** -- local caching means the site stays up even if the upstream API is unavailable
 
@@ -28,7 +30,8 @@ Optional settings:
 
 | Variable | Default | Description |
 |---|---|---|
-| `competition_id` | `36` | Competition to track |
+| `competition_id` | `37` | Competition served at the un-prefixed URLs ("this season") |
+| `archive_refresh_seconds` | `86400` | How often to re-check archived seasons |
 | `sync_interval_seconds` | `600` | Background sync frequency |
 | `db_path` | `ai_arena_recap.db` | SQLite database path |
 
@@ -41,6 +44,9 @@ ai-arena-recap init-db
 # Sync match data (use --max-rounds to limit initial import)
 ai-arena-recap sync
 ai-arena-recap sync --max-rounds 50
+
+# Import a past season into the archive (browsable at /s/<slug>/ afterwards)
+ai-arena-recap sync --competition 36
 
 # Start the web server (http://127.0.0.1:8000)
 ai-arena-recap serve

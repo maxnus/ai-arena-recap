@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlmodel import Session, select
 
-from ai_arena_recap.config import settings
 from ai_arena_recap.models import Bot, CompetitionParticipation
+from ai_arena_recap.web import season as season_mod
 from ai_arena_recap.web.deps import get_session, render
 from ai_arena_recap.web.queries import (
     MATCHUP_MIN_GAMES,
@@ -27,7 +27,7 @@ def bot_page(bot_id: int, request: Request, session: Session = Depends(get_sessi
         select(CompetitionParticipation)
         .where(
             CompetitionParticipation.bot_id == bot_id,
-            CompetitionParticipation.competition_id == settings.competition_id,
+            CompetitionParticipation.competition_id == season_mod.cid(),
         )
     ).first()
     update_round = round_position_for_timestamp(session, bot.bot_zip_updated)

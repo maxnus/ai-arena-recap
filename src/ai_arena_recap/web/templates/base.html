@@ -1,4 +1,5 @@
 <!doctype html>
+{% from "_macros.html" import local_dt %}
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -12,13 +13,24 @@
   <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
   <script src="{{ request.url_for('static', path='app.js') }}"></script>
 </head>
-<body>
+<body data-season-base="{{ season_base }}">
   <header>
     <nav>
-      <a class="brand" href="/">AI Arena Recap</a>
-      <a class="nav-link{% if request.url.path == '/' %} active{% endif %}" href="/">Leaderboard</a>
-      <a class="nav-link{% if request.url.path == '/rankings' %} active{% endif %}" href="/rankings">Top 10 Rankings</a>
-      {% if competition %}
+      <a class="brand" href="{{ season_base }}/">AI Arena Recap</a>
+      <a class="nav-link{% if request.url.path == '/' %} active{% endif %}" href="{{ season_base }}/">Leaderboard</a>
+      <a class="nav-link{% if request.url.path == '/rankings' %} active{% endif %}" href="{{ season_base }}/rankings">Top 10 Rankings</a>
+      {# Season switcher: keeps the visitor on the same sub-path (a bot page
+         stays on that bot) but scoped to the season they picked. With a single
+         season in the DB it degrades to the plain name it replaced. #}
+      {% if seasons | length > 1 %}
+        <select class="season-switch" id="season-switch" aria-label="Season">
+          {% for s in seasons %}
+            <option value="{{ s.base }}{{ subpath }}"{% if s.id == season.id %} selected{% endif %}>
+              {{ s.name }}{% if not s.is_current %} &middot; final{% endif %}
+            </option>
+          {% endfor %}
+        </select>
+      {% elif competition %}
         <span class="comp-name">{{ competition.name }}</span>
       {% endif %}
       <div class="nav-right">
@@ -41,11 +53,22 @@
   </header>
 
   <main>
+    {% if season and not season.is_current %}
+      <div class="season-banner">
+        Archived season &mdash; <strong>{{ season.name }}</strong> final standings{% if season.date_closed %},
+        closed {{ local_dt(season.date_closed) }}{% endif %}.
+        <a href="{{ subpath }}">Back to the current season &rarr;</a>
+      </div>
+    {% elif season and season.closed %}
+      <div class="season-banner">
+        <strong>{{ season.name }}</strong> has ended{% if season.date_closed %} ({{ local_dt(season.date_closed) }}){% endif %} &mdash;
+        these are its final standings.
+      </div>
+    {% endif %}
     {% block content %}{% endblock %}
   </main>
 
   <footer>
-    {% from "_macros.html" import local_dt %}
     {% if last_synced_age_s is not none %}
       Data synced {{ last_synced_age_s | age }}
       ({{ local_dt(last_synced_dt) }}).

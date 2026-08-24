@@ -1,12 +1,13 @@
 import asyncio
 import logging
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI, Request
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlmodel import Session, func, select
@@ -18,6 +19,7 @@ from ai_arena_recap.models import Bot, Competition, Match, Round
 from ai_arena_recap.sync.common import utcnow
 from ai_arena_recap.sync.replays import sync_replays
 from ai_arena_recap.sync.runner import sync_all
+from ai_arena_recap.web import season as season_mod
 from ai_arena_recap.web.routes import api, bot, ladder, match, rankings
 
 LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
@@ -41,6 +43,53 @@ _CRAWLER_UA_MARKERS = (
 def _is_crawler(user_agent: str) -> bool:
     ua = user_agent.lower()
     return any(marker in ua for marker in _CRAWLER_UA_MARKERS)
+
+
+# ---------------------------------------------------------------------------
+# Season routing
+# ---------------------------------------------------------------------------
+
+# /s/<slug>/anything -> season <slug>, path "anything". Everything not under
+# /s/ serves the current competition.
+_SEASON_PATH_RE = re.compile(r"^/s/([^/]+)(/.*)?$")
+
+
+class SeasonMiddleware:
+    """Serves archived seasons under ``/s/<slug>/`` off the same route table.
+
+    Rather than registering every route twice, this strips the ``/s/<slug>``
+    prefix from the ASGI path before routing and puts the resolved season in a
+    ContextVar, which is where the query layer reads its competition id from
+    (see web/season.py). Plain ASGI rather than BaseHTTPMiddleware on purpose:
+    the downstream app is awaited in *this* task, so the ContextVar it sets is
+    the one the route handlers see.
+
+    It sits above the page-view middleware, so views are recorded against the
+    stripped path — a bot's popularity is counted once, not once per season."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        match = _SEASON_PATH_RE.match(scope["path"])
+        if match is None:
+            await self.app(scope, receive, send)
+            return
+
+        slug, rest = match.group(1), match.group(2) or "/"
+        with Session(engine) as session:
+            target = season_mod.resolve(session, slug)
+        if target is None:
+            response = PlainTextResponse(f"Unknown season '{slug}'", status_code=404)
+            await response(scope, receive, send)
+            return
+
+        scope = dict(scope, path=rest, raw_path=rest.encode("utf-8"))
+        with season_mod.use(target):
+            await self.app(scope, receive, send)
 
 
 def _should_count(request: Request, response) -> bool:
@@ -144,6 +193,11 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     app = FastAPI(title="AI Arena Recap", lifespan=lifespan)
+    # Starlette runs the *last* added middleware outermost, so this reads
+    # inside-out: page views are counted innermost (after SeasonMiddleware has
+    # stripped the season prefix), and the host check runs first of all.
+    app.middleware("http")(page_view_middleware)
+    app.add_middleware(SeasonMiddleware)
     app.add_middleware(
         TrustedHostMiddleware,
         allowed_hosts=[
@@ -153,7 +207,6 @@ def create_app() -> FastAPI:
             "localhost",
         ],
     )
-    app.middleware("http")(page_view_middleware)
     app.mount("/static", StaticFiles(directory=str(WEB_DIR / "static")), name="static")
 
     app.include_router(ladder.router)
@@ -166,6 +219,11 @@ def create_app() -> FastAPI:
     def healthz():
         with Session(engine) as session:
             comp = session.exec(select(Competition).where(Competition.id == settings.competition_id)).first()
+            archived = [
+                {"id": s.id, "name": s.name, "url": f"{s.base}/"}
+                for s in season_mod.all_seasons(session)
+                if not s.is_current
+            ]
             counts = {
                 "bots": session.exec(select(func.count()).select_from(Bot)).one(),
                 "rounds": session.exec(select(func.count()).select_from(Round)).one(),
@@ -178,7 +236,13 @@ def create_app() -> FastAPI:
         return JSONResponse({
             "competition_id": settings.competition_id,
             "competition_name": comp.name if comp else None,
+            "competition_status": comp.status if comp else None,
+            # True means the tracked competition has ended and COMPETITION_ID
+            # should be pointed at the new one (the site keeps serving the
+            # finished season's final standings until then).
+            "competition_closed": bool(comp and (comp.status or "").lower() == "closed"),
             "competition_last_synced": comp.last_synced.isoformat() if comp else None,
+            "archived_seasons": archived,
             "counts": counts,
             "replay_cache": replay_cache,
         })

@@ -6,9 +6,9 @@ from fastapi import Request
 from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, select
 
-from ai_arena_recap.config import settings
 from ai_arena_recap.db import engine
 from ai_arena_recap.models import Competition
+from ai_arena_recap.web import season as season_mod
 
 WEB_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(WEB_DIR / "templates"))
@@ -33,9 +33,17 @@ def get_session() -> Iterator[Session]:
 
 
 def render(request: Request, template: str, **context):
-    """Render a template with shared chrome (last-synced footer, etc.)."""
+    """Render a template with shared chrome (season switcher, last-synced footer).
+
+    ``season`` is whichever competition the URL asked for (see web/season.py);
+    ``season_base`` is the prefix every internal link must carry so a visitor
+    browsing an archived season stays inside it. ``subpath`` is the path with
+    that prefix already stripped by the season middleware, which is what the
+    switcher appends to another season's base to stay on the same page."""
+    season = season_mod.current()
     with Session(engine) as session:
-        comp = session.exec(select(Competition).where(Competition.id == settings.competition_id)).first()
+        comp = session.exec(select(Competition).where(Competition.id == season.id)).first()
+        seasons = season_mod.all_seasons(session)
 
     last_synced_dt = comp.last_synced if comp else None
     last_synced_age_s = None
@@ -49,6 +57,10 @@ def render(request: Request, template: str, **context):
         template,
         {
             "competition": comp,
+            "season": season,
+            "season_base": season.base,
+            "seasons": seasons,
+            "subpath": request.url.path,
             "last_synced_dt": last_synced_dt,
             "last_synced_age_s": last_synced_age_s,
             **context,

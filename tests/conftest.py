@@ -30,7 +30,13 @@ def engine(monkeypatch):
     from ai_arena_recap.web import deps as deps_module
     monkeypatch.setattr(app_module, "engine", eng)
     monkeypatch.setattr(deps_module, "engine", eng)
+    # web.season memoises the current season (read from the DB); drop it so a
+    # season cached against a previous test's engine can't leak into this one.
+    from ai_arena_recap.web import season
+
+    season.reset()
     yield eng
+    season.reset()
     eng.dispose()
 
 

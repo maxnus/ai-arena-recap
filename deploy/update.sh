@@ -16,6 +16,11 @@ cd /opt/ai-arena-recap
 git fetch origin main
 git reset --hard origin/main
 uv sync --frozen
+# Snapshot the DB before the new code gets to run against it (the service is
+# still on the old revision until the restart below). It holds every finished
+# season the site serves at /s/<slug>/, and re-importing one from the API takes
+# hours. Online backup, so the running service can keep writing. Keeps 3.
+uv run --frozen python scripts/backup_db.py || echo "WARNING: DB backup failed; continuing" >&2
 echo "Deployed: $(git rev-parse --short HEAD)"
 INNER
 

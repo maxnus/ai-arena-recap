@@ -21,7 +21,7 @@
                   <span class="rank-pos">{{ loop.index }}</span>
                   <span class="rank-name">
                     {% if row.race %}{{ race_icon(row.race) }}{% endif %}
-                    {% if row.href %}<a href="{{ row.href }}">{{ row.name }}</a>{% else %}{{ row.name }}{% endif %}
+                    {% if row.href %}<a href="{{ season_base }}{{ row.href }}">{{ row.name }}</a>{% else %}{{ row.name }}{% endif %}
                     {% if row.sub %}<span class="rank-sub">{{ row.sub }}</span>{% endif %}
                   </span>
                   <span class="rank-value">{{ row.value }}</span>
