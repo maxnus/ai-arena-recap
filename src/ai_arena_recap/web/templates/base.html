@@ -5,15 +5,23 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}AI Arena Recap{% endblock %}</title>
-  <link rel="icon" type="image/svg+xml" href="{{ request.url_for('static', path='favicon.svg') }}">
+  <link rel="icon" type="image/svg+xml" href="{{ static_url('favicon.svg') }}">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/styles/ag-grid.min.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/styles/ag-theme-quartz.min.css">
-  <link rel="stylesheet" href="{{ request.url_for('static', path='styles.css') }}">
+  <link rel="stylesheet" href="{{ static_url('styles.css') }}">
   <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/dist/ag-grid-community.min.js"></script>
   <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
-  <script src="{{ request.url_for('static', path='app.js') }}"></script>
+  {# Season prefix for every URL built in JS ("" on the current season). Defined
+     here rather than in app.js so it always matches the HTML it was rendered
+     with — a stale cached app.js can then only degrade the search links, never
+     break a page that calls it. #}
+  <script>
+    const SEASON_BASE = {{ season_base | tojson }};
+    function seasonUrl(path) { return SEASON_BASE + path; }
+  </script>
+  <script src="{{ static_url('app.js') }}"></script>
 </head>
-<body data-season-base="{{ season_base }}">
+<body>
   <header>
     <nav>
       <a class="brand" href="{{ season_base }}/">AI Arena Recap</a>

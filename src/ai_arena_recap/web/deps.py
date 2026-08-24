@@ -1,3 +1,4 @@
+import hashlib
 from collections.abc import Iterator
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,6 +26,30 @@ def humanize_age(seconds: float) -> str:
 
 
 templates.env.filters["age"] = humanize_age
+
+
+_STATIC_VERSIONS: dict[str, str] = {}
+
+
+def static_url(name: str) -> str:
+    """``/static/<name>?v=<content hash>`` — a URL that changes when the file does.
+
+    The HTML is never cached but the assets are (no Cache-Control, so browsers
+    cache heuristically), which means a returning visitor can pair fresh markup
+    with a months-old app.js. That skew broke the ladder once already: the
+    templates called ``seasonUrl()`` before the cached app.js defined it, and the
+    grid silently never rendered. Hashing the URL retires the old copy instead."""
+    if name not in _STATIC_VERSIONS:
+        path = WEB_DIR / "static" / name
+        try:
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()[:10]
+        except OSError:
+            digest = "0"
+        _STATIC_VERSIONS[name] = digest
+    return f"/static/{name}?v={_STATIC_VERSIONS[name]}"
+
+
+templates.env.globals["static_url"] = static_url
 
 
 def get_session() -> Iterator[Session]:

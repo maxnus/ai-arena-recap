@@ -1,17 +1,10 @@
 const DOWNLOAD_ICON = "⬇";
 
 // --- Season-scoped links ----------------------------------------------------
-// Archived seasons are served under /s/<slug>/, and <body data-season-base>
-// carries that prefix ("" on the current season). Every internal URL built in
-// JS goes through seasonUrl() so a visitor browsing an archived season stays
-// inside it. Read lazily: this file loads in <head>, before <body> exists.
-function seasonBase() {
-  return (document.body && document.body.dataset.seasonBase) || "";
-}
-
-function seasonUrl(path) {
-  return seasonBase() + path;
-}
+// Archived seasons are served under /s/<slug>/. Every internal URL built in JS
+// goes through seasonUrl() — defined inline in base.html, so it always carries
+// the prefix of the page actually being viewed — and a visitor browsing an
+// archived season stays inside it.
 
 // The header <select> jumps to the same page in another season; each <option>
 // value is the ready-made path (see base.html).

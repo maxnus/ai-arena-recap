@@ -5,6 +5,7 @@ ladder-membership switch (aiarena flips every participation to active=0 when a
 competition closes, so closed seasons fall back to final division placement),
 and the middleware that keeps route handlers unaware of any of it.
 """
+import re
 from datetime import datetime, timezone
 
 import pytest
@@ -26,6 +27,7 @@ from ai_arena_recap.models import (
 from ai_arena_recap.sync.common import upsert
 from ai_arena_recap.web import rankings, season
 from ai_arena_recap.web.app import SeasonMiddleware, page_view_middleware
+from ai_arena_recap.web import deps
 from ai_arena_recap.web.deps import WEB_DIR
 from ai_arena_recap.web.routes import api as api_route
 from ai_arena_recap.web.routes import bot as bot_route
@@ -194,6 +196,25 @@ def test_rankings_cache_keeps_a_slot_per_season(engine, session, client):
     client.get("/rankings")
     client.get(f"/s/{ARCHIVED_SLUG}/rankings")
     assert set(rankings._CACHE) == {CURRENT, ARCHIVED}
+
+
+# --- asset / HTML pairing ---------------------------------------------------
+
+def test_pages_carry_their_own_season_base(engine, session, client):
+    """The season prefix JS builds URLs from ships with the HTML, not with
+    app.js — a browser holding a stale cached app.js must not be able to pair
+    it with fresh markup and break the page."""
+    _seed(session)
+    assert 'const SEASON_BASE = "";' in client.get("/").text
+    assert f'const SEASON_BASE = "/s/{ARCHIVED_SLUG}";' in client.get(f"/s/{ARCHIVED_SLUG}/").text
+
+
+def test_static_urls_are_content_hashed(engine, session, client):
+    """Asset URLs change when the asset does, so a deploy retires cached copies."""
+    page = client.get("/").text
+    assert re.search(r'href="/static/styles\.css\?v=[0-9a-f]{10}"', page)
+    assert re.search(r'src="/static/app\.js\?v=[0-9a-f]{10}"', page)
+    assert deps.static_url("app.js") != deps.static_url("styles.css").replace("styles.css", "app.js")
 
 
 # --- middleware -------------------------------------------------------------
