@@ -34,7 +34,7 @@
         <select class="season-switch" id="season-switch" aria-label="Season">
           {% for s in seasons %}
             <option value="{{ s.base }}{{ subpath }}"{% if s.id == season.id %} selected{% endif %}>
-              {{ s.name }}{% if not s.is_current %} &middot; final{% endif %}
+              {{ s.name }}{% if s.closed %} (closed){% endif %}
             </option>
           {% endfor %}
         </select>
