@@ -3,6 +3,7 @@ import logging
 import time
 from datetime import timedelta
 
+from sqlalchemy import or_
 from sqlmodel import Session, select
 
 from ai_arena_recap.api_client import AiArenaClient
@@ -27,13 +28,16 @@ def archived_due(session: Session) -> list[int]:
     /s/<slug>/, so it has to keep existing — but a closed season's data never
     changes, so touching it once a day is enough (and covers the case where the
     final sync of a season was interrupted). Ordered oldest-synced first."""
-    cutoff = utcnow() - timedelta(seconds=settings.archive_refresh_seconds)
-    rows = session.exec(
-        select(Competition.id, Competition.last_synced)
+    # SQLite hands datetimes back naive, so the cutoff has to be naive too and
+    # the comparison has to happen in SQL: doing it in Python against an aware
+    # utcnow() raises TypeError. Same reason as _cleanup_old_replays.
+    cutoff = (utcnow() - timedelta(seconds=settings.archive_refresh_seconds)).replace(tzinfo=None)
+    return list(session.exec(
+        select(Competition.id)
         .where(Competition.id != settings.competition_id)
+        .where(or_(Competition.last_synced.is_(None), Competition.last_synced <= cutoff))  # type: ignore[union-attr]
         .order_by(Competition.last_synced.asc())
-    ).all()
-    return [cid for cid, last_synced in rows if last_synced is None or last_synced <= cutoff]
+    ).all())
 
 
 async def warn_if_season_rolled_over(session: Session, client: AiArenaClient) -> None:
@@ -93,10 +97,19 @@ async def sync_all(
                 bot_ids = await _sync_competition_tree(session, client, primary, max_rounds=max_rounds)
 
                 if competition_id is None:
-                    await warn_if_season_rolled_over(session, client)
-                    for archived_id in archived_due(session):
-                        log.info("Refreshing archived season %s", archived_id)
-                        bot_ids |= await _sync_competition_tree(session, client, archived_id)
+                    # Best-effort housekeeping over data that either never
+                    # changes (closed seasons) or only produces a log line. It
+                    # must never cost us the live season's bot sync below — a
+                    # TypeError in archived_due once froze every bot's name and
+                    # race for five days while the ladder kept updating around it.
+                    try:
+                        await warn_if_season_rolled_over(session, client)
+                        for archived_id in archived_due(session):
+                            log.info("Refreshing archived season %s", archived_id)
+                            bot_ids |= await _sync_competition_tree(session, client, archived_id)
+                    except Exception:  # noqa: BLE001
+                        log.exception("Archived-season pass failed; continuing with the live season")
+                        session.rollback()
 
                 bot_ids |= await repair_incomplete_participations(session, client)
                 await sync_bots(session, client, bot_ids, force=force_bots)

@@ -3,13 +3,26 @@ participation-repair pass that fixes the Match-finished-before-MatchParticipatio
 race against aiarena.net.
 """
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlmodel import select
 
+from ai_arena_recap.config import settings
 from ai_arena_recap.models import Bot, Competition, Map, Match, MatchParticipation, Round
-from ai_arena_recap.sync.common import ensure_bot_stub, upsert
+from ai_arena_recap.sync import runner
+from ai_arena_recap.sync.common import ensure_bot_stub, upsert, utcnow
 from ai_arena_recap.sync.rounds import repair_incomplete_participations, sync_rounds_and_matches
+from ai_arena_recap.sync.runner import archived_due
+
+
+class _NullClient:
+    """AiArenaClient stand-in for sync_all tests: makes no requests."""
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_exc):
+        return None
 
 
 def _now() -> datetime:
@@ -273,3 +286,65 @@ class TestSyncRoundsAndMatches:
 
         asyncio.run(sync_rounds_and_matches(session, client, 36))
         assert client.participation_calls == []
+
+
+class TestArchivedDue:
+    """The archive refresh schedule, and its blast radius when it goes wrong.
+
+    Both cases are regressions from one bug: archived_due compared last_synced
+    (naive, as SQLite always returns it) against an aware utcnow() in Python.
+    Every tick raised TypeError between the rounds sync and sync_bots, so the
+    ladder kept updating while bot names and races stayed frozen as "bot-<id>"
+    placeholders for five days.
+    """
+
+    def _seed(self, session, *, archived_last_synced: datetime) -> None:
+        upsert(session, Competition, {
+            "id": settings.competition_id, "name": "Current", "status": "open",
+            "last_synced": utcnow(),
+        })
+        upsert(session, Competition, {
+            "id": settings.competition_id - 1, "name": "Archived", "status": "closed",
+            "last_synced": archived_last_synced,
+        })
+        session.commit()
+
+    def test_stale_archive_is_due(self, session):
+        stale = utcnow() - timedelta(seconds=settings.archive_refresh_seconds + 60)
+        self._seed(session, archived_last_synced=stale)
+        assert archived_due(session) == [settings.competition_id - 1]
+
+    def test_recently_synced_archive_is_not_due(self, session):
+        self._seed(session, archived_last_synced=utcnow() - timedelta(seconds=60))
+        assert archived_due(session) == []
+
+    def test_a_broken_archive_pass_still_lets_bots_sync(self, session, monkeypatch):
+        """The archive pass covers data that no longer changes. The live season's
+        bot metadata does change, and is fetched after it — a failure upstairs
+        must not cost us that."""
+        calls: list[str] = []
+
+        async def fake_tree(session, client, competition_id, *, max_rounds=None):
+            calls.append(f"tree:{competition_id}")
+            return {7}
+
+        async def fake_sync_bots(session, client, bot_ids, *, force=False):
+            calls.append(f"bots:{sorted(bot_ids)}")
+
+        async def noop(*args, **kwargs):
+            return set()
+
+        def boom(session):
+            raise TypeError("can't compare offset-naive and offset-aware datetimes")
+
+        monkeypatch.setattr(runner, "AiArenaClient", _NullClient)
+        monkeypatch.setattr(runner, "sync_maps", noop)
+        monkeypatch.setattr(runner, "_sync_competition_tree", fake_tree)
+        monkeypatch.setattr(runner, "archived_due", boom)
+        monkeypatch.setattr(runner, "warn_if_season_rolled_over", noop)
+        monkeypatch.setattr(runner, "repair_incomplete_participations", noop)
+        monkeypatch.setattr(runner, "sync_bots", fake_sync_bots)
+
+        asyncio.run(runner.sync_all())
+
+        assert calls == [f"tree:{settings.competition_id}", "bots:[7]"]
