@@ -172,7 +172,7 @@ async def sync_all(
                             log.exception("Archived-season pass failed; continuing with the live season")
                             session.rollback()
 
-                    bot_ids |= await repair_incomplete_participations(session, client)
+                    bot_ids |= await repair_incomplete_participations(session, client, primary)
                     await sync_bots(session, client, bot_ids, force=force_bots)
             log.info("Sync complete in %.1fs", time.monotonic() - t0)
 

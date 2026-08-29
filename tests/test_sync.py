@@ -161,7 +161,7 @@ class TestRepairIncompleteParticipations:
             ],
         })
 
-        asyncio.run(repair_incomplete_participations(session, client))
+        asyncio.run(repair_incomplete_participations(session, client, 36))
 
         assert client.calls == [999]
         parts = session.exec(
@@ -192,7 +192,7 @@ class TestRepairIncompleteParticipations:
         session.commit()
 
         client = _FakeApiClient({})
-        asyncio.run(repair_incomplete_participations(session, client))
+        asyncio.run(repair_incomplete_participations(session, client, 36))
         assert client.calls == []  # no API hits
 
     def test_skips_cancelled_matches(self, session):
@@ -219,7 +219,7 @@ class TestRepairIncompleteParticipations:
         session.commit()
 
         client = _FakeApiClient({})
-        asyncio.run(repair_incomplete_participations(session, client))
+        asyncio.run(repair_incomplete_participations(session, client, 36))
         assert client.calls == []  # cancelled match is settled, not refetched
 
     def test_does_not_touch_in_progress_matches(self, session):
@@ -238,7 +238,7 @@ class TestRepairIncompleteParticipations:
         session.commit()
 
         client = _FakeApiClient({})
-        asyncio.run(repair_incomplete_participations(session, client))
+        asyncio.run(repair_incomplete_participations(session, client, 36))
         assert client.calls == []
 
 
@@ -418,7 +418,7 @@ class TestRepairIsBounded:
         self._seed_incomplete(session, 10)
         client = _FakeApiClient({})
 
-        asyncio.run(repair_incomplete_participations(session, client, limit=4))
+        asyncio.run(repair_incomplete_participations(session, client, 36, limit=4))
 
         assert client.calls == [500, 501, 502, 503]
 
@@ -426,9 +426,49 @@ class TestRepairIsBounded:
         self._seed_incomplete(session, 6)
         first, second = _FakeApiClient({}), _FakeApiClient({})
 
-        asyncio.run(repair_incomplete_participations(session, first, limit=4))
-        asyncio.run(repair_incomplete_participations(session, second, limit=4))
+        asyncio.run(repair_incomplete_participations(session, first, 36, limit=4))
+        asyncio.run(repair_incomplete_participations(session, second, 36, limit=4))
 
         # Nothing was fixed (the fake returns no rows), so the second pass sees
         # the same candidates — the point is that each pass stays bounded.
         assert len(first.calls) == len(second.calls) == 4
+
+
+class TestRepairIsScopedToOneCompetition:
+    """The race this pass fixes — result lands before the participation rows —
+    only happens in a competition still playing matches. Sweeping the archive
+    too was waste, and once four seasons were backfilled it was ruinous: the
+    candidate set hit 306,000 and the live tick spent 2,000 requests every five
+    minutes on history, thirty times the rate the throttled backfill was using.
+    """
+
+    def _seed(self, session) -> None:
+        for comp, round_id, match_id in [(36, 1, 500), (35, 2, 600)]:
+            upsert(session, Competition, {"id": comp, "name": f"C{comp}", "last_synced": _now()})
+            upsert(session, Round, {"id": round_id, "number": 1, "competition_id": comp,
+                                    "complete": True, "last_synced": _now()})
+            upsert(session, Match, {"id": match_id, "round_id": round_id,
+                                    "result_created": _now(), "result_type": "Player1Win",
+                                    "last_synced": _now()})
+        session.commit()
+
+    def test_only_the_named_competitions_matches_are_repaired(self, session):
+        self._seed(session)
+        client = _FakeApiClient({})
+
+        asyncio.run(repair_incomplete_participations(session, client, 36))
+
+        assert client.calls == [500]   # not 600, which belongs to the archive
+
+    def test_an_archived_backlog_costs_the_live_tick_nothing(self, session):
+        self._seed(session)
+        # A whole archived season's worth of gaps, as a fresh backfill leaves.
+        for i in range(50):
+            upsert(session, Match, {"id": 700 + i, "round_id": 2, "result_created": _now(),
+                                    "result_type": "Player1Win", "last_synced": _now()})
+        session.commit()
+        client = _FakeApiClient({})
+
+        asyncio.run(repair_incomplete_participations(session, client, 36))
+
+        assert client.calls == [500]

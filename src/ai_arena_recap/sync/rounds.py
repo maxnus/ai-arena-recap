@@ -54,7 +54,7 @@ async def _fetch_participations(client: AiArenaClient, match_id: int) -> list[di
 
 
 async def repair_incomplete_participations(
-    session: Session, client: AiArenaClient, *, limit: int = 2000
+    session: Session, client: AiArenaClient, competition_id: int, *, limit: int = 2000
 ) -> set[int]:
     """Find matches where the Match row says the game is over but the participation
     rows are missing or incomplete, and refetch them. Two failure modes are covered:
@@ -69,16 +69,21 @@ async def repair_incomplete_participations(
     Including them made repair refetch every cancelled match ever, every tick,
     forever (the candidate set has no time bound).
 
-    Capped at ``limit`` matches per call. This pass costs one request per match
-    and runs inside the live sync tick, so an unbounded candidate set — an
-    interrupted backfill leaves tens of thousands — would stall the live season
-    behind hours of repair. Oldest first, so a large backlog still drains, just
-    across ticks instead of inside one.
+    Scoped to one competition, and capped at ``limit`` matches per call. Both
+    bounds matter. The race this fixes only happens in a competition that is
+    still playing matches, so sweeping the whole archive is waste — and once
+    the archive got large it was ruinous waste: with four seasons freshly
+    imported the candidate set hit 306,000 and the live tick was spending 2,000
+    requests every five minutes chewing on history, thirty times the rate a
+    deliberately throttled backfill was using on the same API. Gaps in a closed
+    season are `sync/backfill.py`'s job, and it reports what it could not fill.
     """
     from sqlalchemy import func
 
     finished = set(session.exec(
         select(Match.id)
+        .join(Round, Round.id == Match.round_id)
+        .where(Round.competition_id == competition_id)
         .where(Match.result_created.is_not(None))
         .where(Match.result_type.is_distinct_from("MatchCancelled"))
     ).all())
@@ -88,6 +93,7 @@ async def repair_incomplete_participations(
     # A 1v1 match is "complete" iff it has at least 2 participations with a populated result.
     complete = set(session.exec(
         select(MatchParticipation.match_id)
+        .where(MatchParticipation.match_id.in_(finished))
         .where(MatchParticipation.result.is_not(None))
         .group_by(MatchParticipation.match_id)
         .having(func.count(MatchParticipation.id) >= 2)
@@ -99,8 +105,8 @@ async def repair_incomplete_participations(
     incomplete_match_ids = candidates[:limit]
     if len(candidates) > limit:
         log.warning(
-            "%d matches need participation repair; doing the oldest %d this pass",
-            len(candidates), limit,
+            "competition %s: %d matches need participation repair; doing the oldest %d this pass",
+            competition_id, len(candidates), limit,
         )
     else:
         log.info("Repairing %d matches with incomplete or missing participations", len(candidates))
