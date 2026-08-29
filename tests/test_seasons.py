@@ -239,3 +239,53 @@ def test_season_scope_does_not_outlive_the_request(engine, session, client):
     _seed(session)
     client.get(f"/s/{ARCHIVED_SLUG}/")
     assert season.current().id == CURRENT
+
+
+def _seed_two_season_history(session):
+    """The same bot playing in both seasons: one match in each."""
+    _seed(session)
+    upsert(session, Match, {
+        "id": 2, "round_id": 2, "started": NOW, "result_created": NOW,
+        "result_type": "Player1Win", "result_winner_bot_id": 1,
+        "result_game_steps": 20000, "last_synced": NOW,
+    })
+    for pid, bot_id, result, elo in [(3, 1, "win", 1650), (4, 2, "loss", 1600)]:
+        upsert(session, MatchParticipation, {
+            "id": pid, "match_id": 2, "bot_id": bot_id, "participant_number": pid - 2,
+            "starting_elo": elo, "resultant_elo": elo, "elo_change": 0,
+            "avg_step_time": 0.02, "result": result, "last_synced": NOW,
+        })
+    session.commit()
+
+
+class TestMatchHistoryStaysInItsSeason:
+    """A bot's career spans seasons; a season's page must not.
+
+    This leaked in production: an archived season's bot page listed matches
+    played after it closed, and the live season's per-opponent record counted
+    the previous season's games (709 for a bot with 292 that season).
+    """
+
+    def test_match_history_only_lists_this_seasons_matches(self, engine, session, client):
+        _seed_two_season_history(session)
+
+        current = client.get("/api/bots/1/matches.json").json()
+        archived = client.get(f"/s/{ARCHIVED_SLUG}/api/bots/1/matches.json").json()
+
+        assert [r["match_id"] for r in current["data"]] == [2]
+        assert [r["match_id"] for r in archived["data"]] == [1]
+
+    def test_the_total_is_scoped_too_so_paging_agrees_with_the_rows(self, engine, session, client):
+        """A total counted across every season would page past the end."""
+        _seed_two_season_history(session)
+
+        for path in ("/api/bots/1/matches.json", f"/s/{ARCHIVED_SLUG}/api/bots/1/matches.json"):
+            body = client.get(path).json()
+            assert body["total"] == len(body["data"]) == 1
+
+    def test_per_opponent_record_excludes_other_seasons(self, engine, session, client):
+        _seed_two_season_history(session)
+
+        body = client.get("/api/bots/1/matchups.json?window_days=365&min_games=1").json()
+        # A 365-day window spans both seasons; only this one's game counts.
+        assert [(r["opp_name"], r["matches"]) for r in body["data"]] == [("Beta", 1)]

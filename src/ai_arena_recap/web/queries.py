@@ -123,10 +123,15 @@ def recent_matchups(
             recent_wins.label("recent_wins"),
         )
         .join(Match, Match.id == MatchParticipation.match_id)
+        .join(Round, Round.id == Match.round_id)
         .join(Opp, (Opp.match_id == Match.id) & (Opp.bot_id != bot_id))
         .join(OppBot, OppBot.id == Opp.bot_id)
         .where(MatchParticipation.bot_id == bot_id)
         .where(Match.started >= cutoff)
+        # The time window alone doesn't bound this to a season: it reaches back
+        # past a rollover, and on the live season it was counting the previous
+        # one's games (709 games reported for a bot with 292 this season).
+        .where(Round.competition_id == season_mod.cid())
         .where(MatchParticipation.result.in_(WLT_RESULTS))
         .group_by(OppBot.id, OppBot.name, OppBot.plays_race)
         .having(matches >= min_games)

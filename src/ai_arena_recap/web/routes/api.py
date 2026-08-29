@@ -167,18 +167,28 @@ def bot_matches_json(
     Opp = aliased(MatchParticipation)
     OppBot = aliased(Bot)
 
+    # Matches belong to a season through their round, and this page is always
+    # being viewed inside one. Without the filter a bot's history is its whole
+    # career: an archived season's page listed matches played after it closed,
+    # and every season would blend into every other as the archive grows.
     base = (
         select(MatchParticipation, Match, Opp, OppBot, Map, Round)
         .join(Match, Match.id == MatchParticipation.match_id)
+        .join(Round, Round.id == Match.round_id)
         .outerjoin(Opp, (Opp.match_id == Match.id) & (Opp.bot_id != bot_id))
         .outerjoin(OppBot, OppBot.id == Opp.bot_id)
         .outerjoin(Map, Map.id == Match.map_id)
-        .outerjoin(Round, Round.id == Match.round_id)
         .where(MatchParticipation.bot_id == bot_id)
+        .where(Round.competition_id == season_mod.cid())
     )
 
     total = session.exec(
-        select(func.count()).select_from(MatchParticipation).where(MatchParticipation.bot_id == bot_id)
+        select(func.count())
+        .select_from(MatchParticipation)
+        .join(Match, Match.id == MatchParticipation.match_id)
+        .join(Round, Round.id == Match.round_id)
+        .where(MatchParticipation.bot_id == bot_id)
+        .where(Round.competition_id == season_mod.cid())
     ).one()
     last_page = max(1, (total + size - 1) // size)
 
@@ -240,9 +250,11 @@ def match_recent_vs_json(
 
     rows = session.exec(
         select(Match, Map)
+        .join(Round, Round.id == Match.round_id)
         .outerjoin(Map, Map.id == Match.map_id)
         .where(Match.id.in_(head_to_head_match_ids))
         .where(Match.started >= cutoff)
+        .where(Round.competition_id == season_mod.cid())
         .order_by(Match.started.desc())
     ).all()
 
