@@ -137,7 +137,9 @@ fix the underlying issue (don't just rerun) and push again.
   is unusable at this scale, so the backfill pages `/match-participations/` by
   bot instead (the only filter that pages reliably to depth) and keeps the rows
   whose match is in scope. Pass several competitions in one call — each bot's
-  career is then paged once rather than once per season.
+  career is then paged once rather than once per season. `--spread-hours N`
+  paces the run: same requests, spread thin enough that a one-off import
+  doesn't land on aiarena.net as a burst.
 
 ## Sync health
 

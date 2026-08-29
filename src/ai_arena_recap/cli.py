@@ -60,12 +60,19 @@ def backfill_cmd(
     force: bool = typer.Option(
         False, "--force", help="Re-page bots whose rows are already all present."
     ),
+    spread_hours: float | None = typer.Option(
+        None,
+        "--spread-hours",
+        help="Pace the import to take roughly this long, instead of running flat out. "
+             "Same total requests, spread thinner — kinder to aiarena.net.",
+    ),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
 ):
     """Import a finished season's full match history into the archive.
 
-    Long-running (tens of minutes) and safe to interrupt — re-running resumes.
-    Use `sync --competition N --max-rounds 0` instead for standings only.
+    Long-running (tens of minutes, or --spread-hours if you'd rather it trickle)
+    and safe to interrupt — re-running resumes. Use
+    `sync --competition N --max-rounds 0` instead for standings only.
     """
     _setup_logging(verbose)
     from ai_arena_recap.api_client import AiArenaClient
@@ -79,7 +86,10 @@ def backfill_cmd(
 
         async with AiArenaClient(timeout=settings.backfill_timeout_seconds) as client:
             with get_session() as session:
-                await backfill(session, client, list(competition), force=force)
+                await backfill(
+                    session, client, list(competition), force=force,
+                    spread_seconds=spread_hours * 3600 if spread_hours else None,
+                )
 
     asyncio.run(_run())
 

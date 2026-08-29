@@ -26,6 +26,7 @@ import time
 from sqlmodel import Session, func, select
 
 from ai_arena_recap.api_client import AiArenaClient
+from ai_arena_recap.config import settings
 from ai_arena_recap.models import CompetitionParticipation, Match, MatchParticipation, Round
 from ai_arena_recap.sync.bots import sync_bots
 from ai_arena_recap.sync.common import ensure_bot_stub, upsert
@@ -176,6 +177,49 @@ async def _discover_unlisted_bots(
     return found - known
 
 
+async def _plan_requests(
+    session: Session, client: AiArenaClient, competition_ids: list[int], bot_ids: list[int]
+) -> tuple[int, int]:
+    """Estimate the requests the rest of the import will take.
+
+    Returns (participation pages, match-listing pages). Costs one request per
+    bot to read each career length, which is also what makes the progress log
+    mean something. Run before pacing is set: it is a short burst of the same
+    shape the live sync makes routinely, and everything after it is paced.
+    """
+    url = f"{client.base_url}/match-participations/"
+
+    async def career(bot_id: int) -> int:
+        d = await client._get(url, {"format": "json", "limit": 1, "bot": bot_id})
+        return int(d["count"])
+
+    careers = await asyncio.gather(*[career(b) for b in bot_ids])
+    page = settings.backfill_page_size
+    participation_pages = sum((c + page - 1) // page for c in careers)
+
+    rounds = 0
+    matches = 0
+    for competition_id in competition_ids:
+        rounds += len(session.exec(
+            select(Round.id).where(Round.competition_id == competition_id)
+        ).all())
+        matches += len(session.exec(
+            select(Match.id)
+            .join(Round, Match.round_id == Round.id)  # type: ignore[arg-type]
+            .where(Round.competition_id == competition_id)
+        ).all())
+    if not rounds:
+        # Rounds aren't imported yet on a first run; size them from the API.
+        for competition_id in competition_ids:
+            d = await client._get(f"{client.base_url}/rounds/",
+                                  {"format": "json", "limit": 1, "competition": competition_id})
+            rounds += int(d["count"])
+        matches = sum(_expected_rows(session, competition_ids).values()) // 2
+    # One request per round, plus an extra page per 500 matches beyond the first.
+    match_pages = rounds + matches // settings.api_page_size
+    return participation_pages, match_pages
+
+
 async def _sweep_bots(
     session: Session, client: AiArenaClient, todo: list[int], in_scope: set[int]
 ) -> dict[int, int]:
@@ -232,21 +276,48 @@ async def backfill(
     competition_ids: list[int],
     *,
     force: bool = False,
+    spread_seconds: float | None = None,
 ) -> dict[int, int]:
     """Import full match history for ``competition_ids``. Returns rows per bot.
 
     Safe to re-run: rounds already complete are skipped, matches already
     finalised are skipped, and a bot whose rows are all present is not paged
     again unless ``force``. An interrupted run resumes rather than restarting.
+
+    ``spread_seconds`` paces the whole import to finish in roughly that long
+    instead of as fast as the API will answer. The request count is modest
+    either way — four seasons is about half a day of what the live sync already
+    does — but it arrives in one burst, and aiarena is run by volunteers.
     """
     t0 = time.monotonic()
     log.info("Backfilling competitions %s", competition_ids)
 
     await sync_maps(session, client)
 
+    # Standings first, for every competition: they name the bots, which is what
+    # the plan below needs before anything expensive starts.
     for competition_id in competition_ids:
         await sync_competition(session, client, competition_id)
         await sync_participations(session, client, competition_id)
+
+    expected = _expected_rows(session, competition_ids)
+
+    if spread_seconds:
+        part_pages, match_pages = await _plan_requests(
+            session, client, competition_ids, sorted(expected)
+        )
+        # Bot/author metadata: at most one request each, plus their users.
+        remaining = part_pages + match_pages + len(expected) * 2
+        left = max(spread_seconds - (time.monotonic() - t0), 60.0)
+        rate = remaining / left * 60.0
+        client.set_rate_per_minute(rate)
+        log.info(
+            "Pacing: ~%d requests left (%d participation pages, %d match pages) over %.1f h "
+            "-> %.1f requests/min, one every %.1fs",
+            remaining, part_pages, match_pages, left / 3600, rate, 60 / rate,
+        )
+
+    for competition_id in competition_ids:
         log.info("Competition %s: importing match rows", competition_id)
         # Match rows only — their participations come from the bulk pass below.
         await sync_rounds_and_matches(
@@ -254,7 +325,6 @@ async def backfill(
         )
 
     in_scope = _in_scope_match_ids(session, competition_ids)
-    expected = _expected_rows(session, competition_ids)
     log.info(
         "Match rows in scope: %d across %d bots (%d participation rows expected)",
         len(in_scope), len(expected), sum(expected.values()),

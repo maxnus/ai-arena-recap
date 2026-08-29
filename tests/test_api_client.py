@@ -128,3 +128,74 @@ def test_bulk_bot_participations_are_ordered_and_paged_large():
     assert params["ordering"] == "id"
     assert params["bot"] == "42"
     assert int(params["limit"]) == settings.backfill_page_size > settings.api_page_size
+
+
+class TestRatePacing:
+    """Pacing spreads a long import over hours instead of firing it in a burst.
+    Off by default, so the live sync is unaffected."""
+
+    def test_unpaced_by_default(self):
+        async def _run():
+            async with AiArenaClient(base_url="https://x.test", token="t") as c:
+                return c._min_interval
+
+        assert asyncio.run(_run()) == 0.0
+
+    def test_rate_becomes_an_interval_between_request_starts(self):
+        async def _run():
+            async with AiArenaClient(base_url="https://x.test", token="t",
+                                     rate_per_minute=30) as c:
+                return c._min_interval
+
+        assert asyncio.run(_run()) == 2.0
+
+    def test_concurrent_callers_share_one_rate_rather_than_multiplying_it(self):
+        """Eight workers at 60/min must produce 60 requests a minute between
+        them, not 480 — the whole point of pacing."""
+        starts: list[float] = []
+
+        async def _run():
+            async with AiArenaClient(base_url="https://x.test", token="t",
+                                     rate_per_minute=60) as c:
+                loop = asyncio.get_running_loop()
+                slept = []
+
+                async def fake_sleep(seconds):
+                    slept.append(seconds)
+
+                async def worker():
+                    await c._await_pace()
+                    starts.append(loop.time())
+
+                import ai_arena_recap.api_client as mod
+                real_sleep = mod.asyncio.sleep
+                mod.asyncio.sleep = fake_sleep
+                try:
+                    await asyncio.gather(*[worker() for _ in range(8)])
+                finally:
+                    mod.asyncio.sleep = real_sleep
+                return slept
+
+        slept = asyncio.run(_run())
+        # Eight slots at one second apart: the first goes immediately, and each
+        # subsequent one waits a second longer than the last.
+        assert len(slept) == 7
+        assert [round(s) for s in sorted(slept)] == [1, 2, 3, 4, 5, 6, 7]
+
+    def test_pacing_does_not_hold_the_lock_while_waiting(self):
+        """Claiming a slot must be instant; only the waiting is staggered. If
+        the lock covered the sleep, workers would serialise on each other and
+        the effective rate would drift."""
+        async def _run():
+            async with AiArenaClient(base_url="https://x.test", token="t",
+                                     rate_per_minute=60) as c:
+                async def hog():
+                    await c._await_pace()
+
+                task = asyncio.create_task(hog())
+                await asyncio.sleep(0)          # let it claim and start waiting
+                locked_during_wait = c._pace_lock.locked()
+                task.cancel()
+                return locked_during_wait
+
+        assert asyncio.run(_run()) is False

@@ -55,6 +55,10 @@ ai-arena-recap sync --competition 36 --max-rounds 0
 ai-arena-recap backfill --competition 35
 ai-arena-recap backfill -c 34 -c 33 -c 32
 
+# Same work, trickled out over ~3 hours instead of ~40 minutes, so the
+# request load on aiarena.net stays close to what the live sync already makes.
+ai-arena-recap backfill -c 34 -c 33 -c 32 -c 31 --spread-hours 3
+
 # Start the web server (http://127.0.0.1:8000)
 ai-arena-recap serve
 ```

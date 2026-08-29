@@ -20,6 +20,7 @@ class AiArenaClient:
         token: str | None = None,
         concurrency: int | None = None,
         timeout: float = 30.0,
+        rate_per_minute: float | None = None,
     ) -> None:
         self.base_url = (base_url or settings.api_base_url).rstrip("/")
         self.token = token or settings.aiarena_api_token
@@ -28,6 +29,41 @@ class AiArenaClient:
             headers={"Authorization": f"Token {self.token}"},
         )
         self._sem = asyncio.Semaphore(concurrency or settings.request_concurrency)
+        self._min_interval = 0.0
+        self._pace_lock = asyncio.Lock()
+        self._next_slot = 0.0
+        self.set_rate_per_minute(rate_per_minute)
+
+    def set_rate_per_minute(self, rate: float | None) -> None:
+        """Cap how often requests may *start*, across all concurrent callers.
+
+        None or 0 means unpaced, which is the default and what the live sync
+        uses. The backfill sets a rate to spread a long import over hours
+        instead of minutes: aiarena is a volunteer-run service, and a job that
+        does a day's worth of requests should not do it in one burst.
+
+        This bounds the request rate, not the concurrency — the two are
+        independent. At 13/min the semaphore is almost never contended.
+        """
+        self._min_interval = 60.0 / rate if rate else 0.0
+
+    async def _await_pace(self) -> None:
+        """Block until this request's turn in the paced schedule.
+
+        Slots are handed out from a shared cursor so N concurrent workers share
+        one rate rather than getting N times it. The lock covers claiming a
+        slot, never the sleep, so workers queue instantly and then wait apart.
+        """
+        if not self._min_interval:
+            return
+        loop = asyncio.get_running_loop()
+        async with self._pace_lock:
+            now = loop.time()
+            start = max(now, self._next_slot)
+            self._next_slot = start + self._min_interval
+        delay = start - now
+        if delay > 0:
+            await asyncio.sleep(delay)
 
     async def close(self) -> None:
         await self._client.aclose()
@@ -39,6 +75,7 @@ class AiArenaClient:
         await self.close()
 
     async def _get(self, url: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        await self._await_pace()
         async with self._sem:
             for attempt in range(5):
                 try:
