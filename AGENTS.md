@@ -127,6 +127,23 @@ push is done until CI has gone green. Workflow:
 invoke the full path `C:\Program Files\GitHub CLI\gh.exe`. If CI fails,
 fix the underlying issue (don't just rerun) and push again.
 
+## Sync health
+
+`/healthz` reports `last_sync` — `ok`, `error`, `seconds` and `age_seconds` for
+the last tick that *finished*. Check it, not `competition_last_synced`:
+`competition.last_synced` is written near the start of a tick, so a sync that
+dies partway leaves every freshness timestamp looking healthy. That is exactly
+how a `TypeError` in `archived_due` went unnoticed for five days while bot
+metadata sat frozen behind a still-updating ladder.
+
+Two rules follow from it:
+
+- Datetimes come back from SQLite **naive**. Never compare one to an aware
+  `utcnow()` in Python — build a naive cutoff (`.replace(tzinfo=None)`) and let
+  SQL do the comparison.
+- A pass over data that no longer changes (archived seasons) must not be able to
+  skip the passes after it. Guard it, log the exception, carry on.
+
 ## Conventions
 
 - The app reads from the local DB only — no live API calls in route handlers.

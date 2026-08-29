@@ -7,7 +7,8 @@ from fastapi.testclient import TestClient
 
 from ai_arena_recap.config import settings
 from ai_arena_recap.models import Bot, Competition, CompetitionParticipation, Map, Match, MatchParticipation, Round
-from ai_arena_recap.sync.common import upsert
+from ai_arena_recap.sync import runner
+from ai_arena_recap.sync.common import upsert, utcnow
 
 
 def _now():
@@ -340,3 +341,40 @@ class TestBotRankHistoryJson:
 
         body = client.get("/api/bots/1/rank-history.json").json()
         assert body == {"data": []}
+
+
+class TestHealthz:
+    """The deploy/monitoring surface. Built from create_app so the assertions
+    cover the real payload, not a hand-assembled stand-in."""
+
+    @pytest.fixture()
+    def health_client(self, engine):
+        from ai_arena_recap.web.app import create_app
+
+        # No `with` block: TestClient only runs the lifespan — and the scheduler
+        # it starts — inside the context manager. TrustedHostMiddleware rejects
+        # TestClient's default "testserver" host, hence the base_url.
+        return TestClient(create_app(), base_url="http://localhost")
+
+    def test_last_sync_is_null_until_one_finishes(self, health_client, monkeypatch):
+        monkeypatch.setattr(runner, "_last_outcome", None)
+        assert health_client.get("/healthz").json()["last_sync"] is None
+
+    def test_last_sync_carries_the_failure_that_ended_the_tick(self, health_client, monkeypatch):
+        """competition_last_synced is written early in a tick, so it keeps
+        looking healthy when the tick dies later on — this is the field that
+        doesn't."""
+        monkeypatch.setattr(runner, "_last_outcome", None)
+        runner._record_outcome(utcnow(), 12.3, TypeError("boom"))
+
+        body = health_client.get("/healthz").json()
+        assert body["last_sync"]["ok"] is False
+        assert body["last_sync"]["error"] == "TypeError: boom"
+        assert body["last_sync"]["seconds"] == 12.3
+
+    def test_last_sync_reports_a_clean_run(self, health_client, monkeypatch):
+        monkeypatch.setattr(runner, "_last_outcome", None)
+        runner._record_outcome(utcnow(), 4.0, None)
+
+        last_sync = health_client.get("/healthz").json()["last_sync"]
+        assert last_sync["ok"] is True and last_sync["error"] is None

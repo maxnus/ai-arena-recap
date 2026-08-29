@@ -18,7 +18,7 @@ from ai_arena_recap.db import engine, init_db
 from ai_arena_recap.models import Bot, Competition, Match, Round
 from ai_arena_recap.sync.common import utcnow
 from ai_arena_recap.sync.replays import sync_replays
-from ai_arena_recap.sync.runner import sync_all
+from ai_arena_recap.sync.runner import last_sync_outcome, sync_all
 from ai_arena_recap.web import season as season_mod
 from ai_arena_recap.web.routes import api, bot, ladder, match, rankings
 
@@ -241,7 +241,13 @@ def create_app() -> FastAPI:
             # should be pointed at the new one (the site keeps serving the
             # finished season's final standings until then).
             "competition_closed": bool(comp and (comp.status or "").lower() == "closed"),
+            # When the tracked competition's row was last written — set early
+            # in a tick, so it marks a sync starting. "last_sync" below is the
+            # one that says whether it finished.
             "competition_last_synced": comp.last_synced.isoformat() if comp else None,
+            # None until a sync completes in this process; ok=False carries the
+            # exception that ended the tick.
+            "last_sync": last_sync_outcome(),
             "archived_seasons": archived,
             "counts": counts,
             "replay_cache": replay_cache,

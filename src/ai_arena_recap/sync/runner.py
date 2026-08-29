@@ -1,7 +1,9 @@
 import asyncio
 import logging
 import time
-from datetime import timedelta
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from typing import Any
 
 from sqlalchemy import or_
 from sqlmodel import Session, select
@@ -19,6 +21,60 @@ from ai_arena_recap.sync.rounds import repair_incomplete_participations, sync_ro
 log = logging.getLogger(__name__)
 
 _lock = asyncio.Lock()
+
+_ERROR_MAX_CHARS = 300
+
+
+@dataclass
+class SyncOutcome:
+    """How the last completed sync attempt ended.
+
+    ``competition.last_synced`` is written early in a tick, so it says a sync
+    *started*, not that it worked. A tick that died partway (see the
+    archived_due TypeError that froze bot metadata for five days) left every
+    freshness signal looking healthy. This records the other end of the run.
+    """
+
+    started: datetime
+    finished: datetime
+    seconds: float
+    ok: bool
+    error: str | None = None
+
+
+_last_outcome: SyncOutcome | None = None
+
+
+def _record_outcome(started: datetime, seconds: float, exc: BaseException | None) -> None:
+    global _last_outcome
+    error = None
+    if exc is not None:
+        error = f"{type(exc).__name__}: {exc}"[:_ERROR_MAX_CHARS]
+    _last_outcome = SyncOutcome(
+        started=started,
+        finished=utcnow(),
+        seconds=round(seconds, 1),
+        ok=exc is None,
+        error=error,
+    )
+
+
+def last_sync_outcome() -> dict[str, Any] | None:
+    """The last sync attempt as JSON-ready data, or None if none has finished.
+
+    ``age_seconds`` is measured at call time: a stuck scheduler shows up as a
+    growing age even while ``ok`` stays true."""
+    outcome = _last_outcome
+    if outcome is None:
+        return None
+    return {
+        "ok": outcome.ok,
+        "started": outcome.started.isoformat(),
+        "finished": outcome.finished.isoformat(),
+        "seconds": outcome.seconds,
+        "age_seconds": round((utcnow() - outcome.finished).total_seconds(), 1),
+        "error": outcome.error,
+    }
 
 
 def archived_due(session: Session) -> list[int]:
@@ -89,41 +145,51 @@ async def sync_all(
         return
     async with _lock:
         t0 = time.monotonic()
+        started = utcnow()
         primary = competition_id or settings.competition_id
         log.info("Starting sync (competition=%s, max_rounds=%s)", primary, max_rounds)
-        async with AiArenaClient() as client:
-            with get_session() as session:
-                await sync_maps(session, client)
-                bot_ids = await _sync_competition_tree(session, client, primary, max_rounds=max_rounds)
+        # Every exit from here on is recorded, so /healthz can report whether
+        # the last tick finished rather than only that one started.
+        try:
+            async with AiArenaClient() as client:
+                with get_session() as session:
+                    await sync_maps(session, client)
+                    bot_ids = await _sync_competition_tree(session, client, primary, max_rounds=max_rounds)
 
-                if competition_id is None:
-                    # Best-effort housekeeping over data that either never
-                    # changes (closed seasons) or only produces a log line. It
-                    # must never cost us the live season's bot sync below — a
-                    # TypeError in archived_due once froze every bot's name and
-                    # race for five days while the ladder kept updating around it.
-                    try:
-                        await warn_if_season_rolled_over(session, client)
-                        for archived_id in archived_due(session):
-                            log.info("Refreshing archived season %s", archived_id)
-                            bot_ids |= await _sync_competition_tree(session, client, archived_id)
-                    except Exception:  # noqa: BLE001
-                        log.exception("Archived-season pass failed; continuing with the live season")
-                        session.rollback()
+                    if competition_id is None:
+                        # Best-effort housekeeping over data that either never
+                        # changes (closed seasons) or only produces a log line.
+                        # It must never cost us the live season's bot sync below
+                        # — a TypeError in archived_due once froze every bot's
+                        # name and race for five days while the ladder kept
+                        # updating around it.
+                        try:
+                            await warn_if_season_rolled_over(session, client)
+                            for archived_id in archived_due(session):
+                                log.info("Refreshing archived season %s", archived_id)
+                                bot_ids |= await _sync_competition_tree(session, client, archived_id)
+                        except Exception:  # noqa: BLE001
+                            log.exception("Archived-season pass failed; continuing with the live season")
+                            session.rollback()
 
-                bot_ids |= await repair_incomplete_participations(session, client)
-                await sync_bots(session, client, bot_ids, force=force_bots)
-        log.info("Sync complete in %.1fs", time.monotonic() - t0)
+                    bot_ids |= await repair_incomplete_participations(session, client)
+                    await sync_bots(session, client, bot_ids, force=force_bots)
+            log.info("Sync complete in %.1fs", time.monotonic() - t0)
 
-        # A competition that just closed changes which rows count as its ladder,
-        # so drop the memoised season before anything reads it again.
-        from ai_arena_recap.web import season
+            # A competition that just closed changes which rows count as its
+            # ladder, so drop the memoised season before anything reads it again.
+            from ai_arena_recap.web import season
 
-        season.reset()
+            season.reset()
 
-        # Pre-warm the /rankings cache off the event loop so the first visitor
-        # after this sync never waits on the aggregate queries. A no-op when the
-        # data fingerprint is unchanged; never raises. Imported lazily to keep
-        # the web layer out of the sync module's import graph.
-        from ai_arena_recap.web.rankings import warm_rankings
-        await asyncio.to_thread(warm_rankings)
+            # Pre-warm the /rankings cache off the event loop so the first
+            # visitor after this sync never waits on the aggregate queries. A
+            # no-op when the data fingerprint is unchanged; never raises.
+            # Imported lazily to keep the web layer out of the sync module's
+            # import graph.
+            from ai_arena_recap.web.rankings import warm_rankings
+            await asyncio.to_thread(warm_rankings)
+        except BaseException as exc:
+            _record_outcome(started, time.monotonic() - t0, exc)
+            raise
+        _record_outcome(started, time.monotonic() - t0, None)

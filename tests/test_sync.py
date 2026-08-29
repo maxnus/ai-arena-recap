@@ -5,6 +5,7 @@ race against aiarena.net.
 import asyncio
 from datetime import datetime, timedelta, timezone
 
+import pytest
 from sqlmodel import select
 
 from ai_arena_recap.config import settings
@@ -23,6 +24,38 @@ class _NullClient:
 
     async def __aexit__(self, *_exc):
         return None
+
+
+def _stub_sync_all(monkeypatch, **overrides) -> list[str]:
+    """Replace everything sync_all calls out to, and return the call log.
+
+    Lets the tests drive sync_all's control flow — which steps still run after
+    a failure, what gets recorded — without touching the network."""
+    calls: list[str] = []
+
+    async def fake_tree(session, client, competition_id, *, max_rounds=None):
+        calls.append(f"tree:{competition_id}")
+        return {7}
+
+    async def fake_sync_bots(session, client, bot_ids, *, force=False):
+        calls.append(f"bots:{sorted(bot_ids)}")
+
+    async def noop(*args, **kwargs):
+        return set()
+
+    stubs = {
+        "AiArenaClient": _NullClient,
+        "sync_maps": noop,
+        "_sync_competition_tree": fake_tree,
+        "archived_due": lambda session: [],
+        "warn_if_season_rolled_over": noop,
+        "repair_incomplete_participations": noop,
+        "sync_bots": fake_sync_bots,
+        **overrides,
+    }
+    for name, value in stubs.items():
+        monkeypatch.setattr(runner, name, value)
+    return calls
 
 
 def _now() -> datetime:
@@ -322,29 +355,45 @@ class TestArchivedDue:
         """The archive pass covers data that no longer changes. The live season's
         bot metadata does change, and is fetched after it — a failure upstairs
         must not cost us that."""
-        calls: list[str] = []
-
-        async def fake_tree(session, client, competition_id, *, max_rounds=None):
-            calls.append(f"tree:{competition_id}")
-            return {7}
-
-        async def fake_sync_bots(session, client, bot_ids, *, force=False):
-            calls.append(f"bots:{sorted(bot_ids)}")
-
-        async def noop(*args, **kwargs):
-            return set()
-
         def boom(session):
             raise TypeError("can't compare offset-naive and offset-aware datetimes")
 
-        monkeypatch.setattr(runner, "AiArenaClient", _NullClient)
-        monkeypatch.setattr(runner, "sync_maps", noop)
-        monkeypatch.setattr(runner, "_sync_competition_tree", fake_tree)
-        monkeypatch.setattr(runner, "archived_due", boom)
-        monkeypatch.setattr(runner, "warn_if_season_rolled_over", noop)
-        monkeypatch.setattr(runner, "repair_incomplete_participations", noop)
-        monkeypatch.setattr(runner, "sync_bots", fake_sync_bots)
-
+        calls = _stub_sync_all(monkeypatch, archived_due=boom)
         asyncio.run(runner.sync_all())
 
         assert calls == [f"tree:{settings.competition_id}", "bots:[7]"]
+
+
+class TestSyncOutcome:
+    """/healthz reports whether the last tick finished, not just that one began."""
+
+    @pytest.fixture(autouse=True)
+    def _clear(self, monkeypatch):
+        monkeypatch.setattr(runner, "_last_outcome", None)
+
+    def test_none_until_a_sync_finishes(self):
+        assert runner.last_sync_outcome() is None
+
+    def test_records_success(self, session, monkeypatch):
+        _stub_sync_all(monkeypatch)
+        asyncio.run(runner.sync_all())
+
+        outcome = runner.last_sync_outcome()
+        assert outcome["ok"] is True
+        assert outcome["error"] is None
+        assert outcome["started"] <= outcome["finished"]
+        assert outcome["age_seconds"] >= 0
+
+    def test_records_the_exception_that_ended_the_tick(self, session, monkeypatch):
+        """The failure mode this exists for: the tick dies partway, every
+        freshness timestamp it already wrote still looks healthy."""
+        async def boom(*args, **kwargs):
+            raise TypeError("can't compare offset-naive and offset-aware datetimes")
+
+        _stub_sync_all(monkeypatch, repair_incomplete_participations=boom)
+        with pytest.raises(TypeError):
+            asyncio.run(runner.sync_all())
+
+        outcome = runner.last_sync_outcome()
+        assert outcome["ok"] is False
+        assert "offset-naive and offset-aware" in outcome["error"]
