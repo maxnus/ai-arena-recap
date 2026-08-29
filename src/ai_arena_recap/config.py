@@ -29,9 +29,21 @@ class Settings(BaseSettings):
     db_path: Path = Field(default=PROJECT_ROOT / "data" / "recap.sqlite")
     sync_interval_seconds: int = 300
     request_concurrency: int = 8
-    # The aiarena.net API honours large page sizes (tested up to 1000), so pull
+    # The aiarena.net API honours large page sizes (tested up to 10000), so pull
     # list endpoints in big pages to minimise the number of HTTP round-trips.
     api_page_size: int = 500
+    # Page size for the backfill's per-bot participation sweep. That endpoint
+    # only offers offset pagination, and offsets get expensive with depth — a
+    # bot with 150k rows is 300 pages of ever-deeper scanning at 500/page.
+    # Bigger pages cut the number of times we pay that: measured 2.3x faster
+    # over one 55k-row career. Kept separate from api_page_size so the live
+    # sync's small, frequent list calls stay small.
+    backfill_page_size: int = 5000
+    # The backfill's requests are far heavier than the live sync's: 5000 rows
+    # from a deep offset, several in flight. The 30s default timeout that suits
+    # small list calls turns those into read timeouts, which retry, escalate,
+    # and eventually exhaust — a first run lost 4 bots that way.
+    backfill_timeout_seconds: float = 180.0
     # Bot metadata (name, race, type, wiki) changes rarely and the API has no
     # bulk-by-id fetch, so each refresh costs one request per bot. Refresh
     # infrequently; live ELO/stats come from competition-participations instead.

@@ -127,6 +127,18 @@ push is done until CI has gone green. Workflow:
 invoke the full path `C:\Program Files\GitHub CLI\gh.exe`. If CI fails,
 fix the underlying issue (don't just rerun) and push again.
 
+**Importing a past season.** Two routes, and the difference is one of scale:
+
+- `sync --competition N --max-rounds 0` — final standings only, a few seconds.
+  The ladder page is complete; match-derived things (ELO chart, match history,
+  half the ranking cards) stay empty.
+- `backfill --competition N` — everything, tens of minutes. See
+  `sync/backfill.py`: the live sync's one-request-per-match participation fetch
+  is unusable at this scale, so the backfill pages `/match-participations/` by
+  bot instead (the only filter that pages reliably to depth) and keeps the rows
+  whose match is in scope. Pass several competitions in one call — each bot's
+  career is then paged once rather than once per season.
+
 ## Sync health
 
 `/healthz` reports `last_sync` — `ok`, `error`, `seconds` and `age_seconds` for

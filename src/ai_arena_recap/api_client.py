@@ -59,9 +59,11 @@ class AiArenaClient:
                 return response.json()
         raise RuntimeError("unreachable")
 
-    async def _paginate(self, path: str, params: dict[str, Any] | None = None) -> AsyncIterator[dict[str, Any]]:
+    async def _paginate(
+        self, path: str, params: dict[str, Any] | None = None, *, page_size: int | None = None
+    ) -> AsyncIterator[dict[str, Any]]:
         url: str | None = f"{self.base_url}{path}"
-        merged = {"format": "json", "limit": settings.api_page_size, **(params or {})}
+        merged = {"format": "json", "limit": page_size or settings.api_page_size, **(params or {})}
         while url:
             data = await self._get(url, params=merged)
             for item in data.get("results", []):
@@ -100,6 +102,32 @@ class AiArenaClient:
 
     async def list_match_participations(self, match_id: int) -> AsyncIterator[dict[str, Any]]:
         async for item in self._paginate("/match-participations/", {"match": match_id}):
+            yield item
+
+    async def list_bot_match_participations(self, bot_id: int) -> AsyncIterator[dict[str, Any]]:
+        """Every participation row for one bot, oldest first — the bulk path.
+
+        The endpoint takes no competition filter and ignores id/match range
+        filters, and paging it unfiltered dies at 504 past roughly a million
+        rows of offset. Filtering by bot keeps offsets inside a single bot's
+        career, which pages reliably to the end, and costs one request per 500
+        rows instead of one per match. `ordering=id` is what makes offset paging
+        well-defined; without it pages can overlap or skip.
+
+        Callers get the bot's whole history and keep the rows they want — there
+        is no way to ask the API for a narrower slice.
+
+        Pages are large (``backfill_page_size``) because the only pagination on
+        offer is offset-based, and an offset costs more the deeper it goes:
+        walking a 55k-row career took 100s in 111 pages of 500, and 44s in 12
+        pages of 5000. Dropping ``ordering`` would be faster still and is not an
+        option — unordered offset paging returned 11.6% of one career twice and
+        another 11.6% not at all.
+        """
+        async for item in self._paginate(
+            "/match-participations/", {"bot": bot_id, "ordering": "id"},
+            page_size=settings.backfill_page_size,
+        ):
             yield item
 
     async def get_match(self, match_id: int) -> dict[str, Any]:

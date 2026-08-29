@@ -100,3 +100,31 @@ def test_authorization_header_is_set():
 
     asyncio.run(_run())
     assert route.calls.last.request.headers["Authorization"] == "Token secret-xyz"
+
+
+@respx.mock
+def test_bulk_bot_participations_are_ordered_and_paged_large():
+    """Two request properties this endpoint cannot lose.
+
+    `ordering=id` is a correctness requirement, not a preference: paged without
+    it, one 18,588-row career came back with 2,163 rows duplicated and 2,163
+    never returned at all. The large page size is what makes the sweep
+    affordable — the endpoint offers only offset pagination, which gets slower
+    the deeper it goes, so fewer-and-bigger pages beat more-and-smaller ones.
+    """
+    from ai_arena_recap.config import settings
+
+    base = "https://example.test/api"
+    route = respx.get(f"{base}/match-participations/").mock(
+        return_value=httpx.Response(200, json={"results": [{"id": 1}], "next": None})
+    )
+
+    async def _run():
+        async with AiArenaClient(base_url=base, token="test") as client:
+            return [p async for p in client.list_bot_match_participations(42)]
+
+    assert asyncio.run(_run()) == [{"id": 1}]
+    params = route.calls[0].request.url.params
+    assert params["ordering"] == "id"
+    assert params["bot"] == "42"
+    assert int(params["limit"]) == settings.backfill_page_size > settings.api_page_size

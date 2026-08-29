@@ -397,3 +397,38 @@ class TestSyncOutcome:
         outcome = runner.last_sync_outcome()
         assert outcome["ok"] is False
         assert "offset-naive and offset-aware" in outcome["error"]
+
+
+class TestRepairIsBounded:
+    """The repair pass costs one request per match and runs inside the live sync
+    tick, so its candidate set needs a ceiling — an interrupted backfill leaves
+    tens of thousands of matches without participations, and an unbounded pass
+    would put the live season behind hours of repair."""
+
+    def _seed_incomplete(self, session, count: int) -> None:
+        upsert(session, Competition, {"id": 36, "name": "T", "last_synced": _now()})
+        upsert(session, Round, {"id": 1, "number": 1, "competition_id": 36,
+                                "complete": True, "last_synced": _now()})
+        for i in range(count):
+            upsert(session, Match, {"id": 500 + i, "round_id": 1, "result_created": _now(),
+                                    "result_type": "Player1Win", "last_synced": _now()})
+        session.commit()
+
+    def test_takes_the_oldest_slice_and_leaves_the_rest(self, session):
+        self._seed_incomplete(session, 10)
+        client = _FakeApiClient({})
+
+        asyncio.run(repair_incomplete_participations(session, client, limit=4))
+
+        assert client.calls == [500, 501, 502, 503]
+
+    def test_backlog_drains_across_calls(self, session):
+        self._seed_incomplete(session, 6)
+        first, second = _FakeApiClient({}), _FakeApiClient({})
+
+        asyncio.run(repair_incomplete_participations(session, first, limit=4))
+        asyncio.run(repair_incomplete_participations(session, second, limit=4))
+
+        # Nothing was fixed (the fake returns no rows), so the second pass sees
+        # the same candidates — the point is that each pass stays bounded.
+        assert len(first.calls) == len(second.calls) == 4

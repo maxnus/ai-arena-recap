@@ -53,7 +53,9 @@ async def _fetch_participations(client: AiArenaClient, match_id: int) -> list[di
     return items
 
 
-async def repair_incomplete_participations(session: Session, client: AiArenaClient) -> set[int]:
+async def repair_incomplete_participations(
+    session: Session, client: AiArenaClient, *, limit: int = 2000
+) -> set[int]:
     """Find matches where the Match row says the game is over but the participation
     rows are missing or incomplete, and refetch them. Two failure modes are covered:
 
@@ -66,6 +68,12 @@ async def repair_incomplete_participations(session: Session, client: AiArenaClie
     per-bot results, so they can never satisfy the "complete" check below.
     Including them made repair refetch every cancelled match ever, every tick,
     forever (the candidate set has no time bound).
+
+    Capped at ``limit`` matches per call. This pass costs one request per match
+    and runs inside the live sync tick, so an unbounded candidate set — an
+    interrupted backfill leaves tens of thousands — would stall the live season
+    behind hours of repair. Oldest first, so a large backlog still drains, just
+    across ticks instead of inside one.
     """
     from sqlalchemy import func
 
@@ -85,10 +93,17 @@ async def repair_incomplete_participations(session: Session, client: AiArenaClie
         .having(func.count(MatchParticipation.id) >= 2)
     ).all())
 
-    incomplete_match_ids = sorted(finished - complete)
-    if not incomplete_match_ids:
+    candidates = sorted(finished - complete)
+    if not candidates:
         return set()
-    log.info("Repairing %d matches with incomplete or missing participations", len(incomplete_match_ids))
+    incomplete_match_ids = candidates[:limit]
+    if len(candidates) > limit:
+        log.warning(
+            "%d matches need participation repair; doing the oldest %d this pass",
+            len(candidates), limit,
+        )
+    else:
+        log.info("Repairing %d matches with incomplete or missing participations", len(candidates))
 
     bot_ids: set[int] = set()
     results = await asyncio.gather(
@@ -114,12 +129,19 @@ async def sync_rounds_and_matches(
     competition_id: int,
     *,
     max_rounds: int | None = None,
+    fetch_participations: bool = True,
 ) -> set[int]:
     """Sync rounds for a competition.
 
     Skips rounds locally marked complete=True.
     Within an open round, skips matches that already have result_created set.
     Returns set of bot ids referenced.
+
+    ``fetch_participations=False`` stops after the match rows. The per-match
+    participation fetch costs one request per match, which is the right trade
+    for a live season's trickle of new matches and hopelessly wrong for a
+    backfill of a hundred thousand — see sync/backfill.py, which imports the
+    match rows this way and then pulls their participations in bulk.
     """
     bot_ids: set[int] = set()
 
@@ -177,7 +199,7 @@ async def sync_rounds_and_matches(
 
         # Fetch participations concurrently, then write sequentially (single Session).
         # return_exceptions=True so a single API hiccup doesn't erase the whole batch.
-        if finished_match_ids:
+        if finished_match_ids and fetch_participations:
             log.info("Round %s: fetching participations for %d newly-finished matches", r.get("number"), len(finished_match_ids))
             results = await asyncio.gather(
                 *[_fetch_participations(client, mid) for mid in finished_match_ids],

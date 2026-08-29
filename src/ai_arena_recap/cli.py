@@ -48,6 +48,42 @@ def sync_cmd(
     asyncio.run(sync_all(max_rounds=max_rounds, force_bots=force_bots, competition_id=competition))
 
 
+@app.command("backfill")
+def backfill_cmd(
+    competition: list[int] = typer.Option(
+        ...,
+        "--competition",
+        "-c",
+        help="Competition to import. Repeat for several — passing them together pages each "
+             "bot's history once instead of once per season.",
+    ),
+    force: bool = typer.Option(
+        False, "--force", help="Re-page bots whose rows are already all present."
+    ),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+):
+    """Import a finished season's full match history into the archive.
+
+    Long-running (tens of minutes) and safe to interrupt — re-running resumes.
+    Use `sync --competition N --max-rounds 0` instead for standings only.
+    """
+    _setup_logging(verbose)
+    from ai_arena_recap.api_client import AiArenaClient
+    from ai_arena_recap.db import get_session, init_db
+    from ai_arena_recap.sync.backfill import backfill
+
+    init_db()
+
+    async def _run() -> None:
+        from ai_arena_recap.config import settings
+
+        async with AiArenaClient(timeout=settings.backfill_timeout_seconds) as client:
+            with get_session() as session:
+                await backfill(session, client, list(competition), force=force)
+
+    asyncio.run(_run())
+
+
 @app.command("sync-replays")
 def sync_replays_cmd(verbose: bool = typer.Option(False, "--verbose", "-v")):
     """Download replays for recent matches and clean up old ones."""

@@ -45,8 +45,15 @@ ai-arena-recap init-db
 ai-arena-recap sync
 ai-arena-recap sync --max-rounds 50
 
-# Import a past season into the archive (browsable at /s/<slug>/ afterwards)
-ai-arena-recap sync --competition 36
+# Import a past season's final standings into the archive (seconds).
+# Browsable at /s/<slug>/ afterwards: full ladder, no match history.
+ai-arena-recap sync --competition 36 --max-rounds 0
+
+# Import a past season in full, match history included (tens of minutes).
+# Pass several at once — that pages each bot's history once instead of once
+# per season. Safe to interrupt; re-running resumes.
+ai-arena-recap backfill --competition 35
+ai-arena-recap backfill -c 34 -c 33 -c 32
 
 # Start the web server (http://127.0.0.1:8000)
 ai-arena-recap serve
