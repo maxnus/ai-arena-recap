@@ -11,6 +11,10 @@ log = logging.getLogger(__name__)
 
 _RETRY_STATUSES = {429, 500, 502, 503, 504}
 
+# Floor for the shrinking bulk page size. Below this the request count climbs
+# faster than the per-request saving is worth.
+MIN_BULK_PAGE_SIZE = 250
+
 
 class AiArenaClient:
     def __init__(
@@ -147,25 +151,48 @@ class AiArenaClient:
         The endpoint takes no competition filter and ignores id/match range
         filters, and paging it unfiltered dies at 504 past roughly a million
         rows of offset. Filtering by bot keeps offsets inside a single bot's
-        career, which pages reliably to the end, and costs one request per 500
-        rows instead of one per match. `ordering=id` is what makes offset paging
-        well-defined; without it pages can overlap or skip.
+        career, which pages reliably to the end, and costs one request per page
+        instead of one per match. `ordering=id` is what makes offset paging
+        well-defined; without it pages overlap and skip — one 18,588-row career
+        came back with 2,163 rows twice and 2,163 not at all.
 
         Callers get the bot's whole history and keep the rows they want — there
         is no way to ask the API for a narrower slice.
 
-        Pages are large (``backfill_page_size``) because the only pagination on
-        offer is offset-based, and an offset costs more the deeper it goes:
-        walking a 55k-row career took 100s in 111 pages of 500, and 44s in 12
-        pages of 5000. Dropping ``ordering`` would be faster still and is not an
-        option — unordered offset paging returned 11.6% of one career twice and
-        another 11.6% not at all.
+        Pages shrink as they get expensive. Server cost grows with offset, so a
+        page size that is comfortable at the start of a long career starts
+        returning 502/504 deep into it: at 5000 rows, offsets past 25,000 failed
+        even after five retries, losing whole bots. On failure the page size
+        drops and the same offset is retried — offsets are row counts, so
+        changing the page size mid-career is safe — and it never grows back,
+        since offsets only get deeper.
         """
-        async for item in self._paginate(
-            "/match-participations/", {"bot": bot_id, "ordering": "id"},
-            page_size=settings.backfill_page_size,
-        ):
-            yield item
+        url = f"{self.base_url}/match-participations/"
+        limit = settings.backfill_page_size
+        offset = 0
+        total: int | None = None
+        while total is None or offset < total:
+            params = {
+                "format": "json", "limit": limit, "bot": bot_id,
+                "ordering": "id", "offset": offset,
+            }
+            try:
+                data = await self._get(url, params)
+            except (httpx.HTTPStatusError, httpx.TransportError):
+                if limit <= MIN_BULK_PAGE_SIZE:
+                    raise
+                limit = max(MIN_BULK_PAGE_SIZE, limit // 4)
+                log.warning(
+                    "Dropping to %d-row pages for bot %s at offset %d", limit, bot_id, offset
+                )
+                continue
+            total = int(data.get("count") or 0)
+            results = data.get("results", [])
+            if not results:
+                break
+            for item in results:
+                yield item
+            offset += len(results)
 
     async def get_match(self, match_id: int) -> dict[str, Any]:
         return await self._get(f"{self.base_url}/matches/{match_id}/", {"format": "json"})

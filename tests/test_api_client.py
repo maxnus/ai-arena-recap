@@ -116,7 +116,7 @@ def test_bulk_bot_participations_are_ordered_and_paged_large():
 
     base = "https://example.test/api"
     route = respx.get(f"{base}/match-participations/").mock(
-        return_value=httpx.Response(200, json={"results": [{"id": 1}], "next": None})
+        return_value=httpx.Response(200, json={"count": 1, "results": [{"id": 1}]})
     )
 
     async def _run():
@@ -199,3 +199,55 @@ class TestRatePacing:
                 return locked_during_wait
 
         assert asyncio.run(_run()) is False
+
+
+class TestBulkPageShrinks:
+    """Server cost grows with offset, so a page size that works at the start of
+    a long career starts failing deep into it. During the 2025 import, 5000-row
+    pages past offset 25,000 returned 502/504 through all five retries and lost
+    whole bots."""
+
+    @respx.mock
+    def test_page_size_drops_after_a_failure_and_the_offset_is_retried(self, fast_sleep):
+        from ai_arena_recap.api_client import MIN_BULK_PAGE_SIZE
+        from ai_arena_recap.config import settings
+
+        base = "https://example.test/api"
+        big = settings.backfill_page_size
+        rows = [{"id": i} for i in range(big)]
+
+        def responder(request):
+            limit = int(request.url.params["limit"])
+            offset = int(request.url.params["offset"])
+            if offset == 0:
+                return httpx.Response(200, json={"count": big + 1, "results": rows})
+            # Deep page: only a smaller request is served.
+            if limit == big:
+                return httpx.Response(502)
+            return httpx.Response(200, json={"count": big + 1, "results": [{"id": 9999}]})
+
+        respx.get(f"{base}/match-participations/").mock(side_effect=responder)
+
+        async def _run():
+            async with AiArenaClient(base_url=base, token="t") as c:
+                return [p async for p in c.list_bot_match_participations(7)]
+
+        got = asyncio.run(_run())
+        assert got[-1] == {"id": 9999}          # the deep page arrived after shrinking
+        assert len(got) == big + 1              # nothing lost or duplicated
+        limits = [int(c.request.url.params["limit"]) for c in respx.calls]
+        assert limits[0] == big                 # started big
+        assert limits[-1] < big                 # ended smaller
+        assert limits[-1] >= MIN_BULK_PAGE_SIZE
+
+    @respx.mock
+    def test_it_gives_up_rather_than_shrinking_forever(self, fast_sleep):
+        base = "https://example.test/api"
+        respx.get(f"{base}/match-participations/").mock(return_value=httpx.Response(502))
+
+        async def _run():
+            async with AiArenaClient(base_url=base, token="t") as c:
+                return [p async for p in c.list_bot_match_participations(7)]
+
+        with pytest.raises(httpx.HTTPStatusError):
+            asyncio.run(_run())

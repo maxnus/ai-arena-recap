@@ -38,7 +38,10 @@ class Settings(BaseSettings):
     # Bigger pages cut the number of times we pay that: measured 2.3x faster
     # over one 55k-row career. Kept separate from api_page_size so the live
     # sync's small, frequent list calls stay small.
-    backfill_page_size: int = 5000
+    # Starting page size; the client shrinks it when the server starts failing
+    # deep offsets. 5000 measured fastest on a cold API but produced 502/504s
+    # past offset 25000 during the 2025 import, so start somewhere it survives.
+    backfill_page_size: int = 2000
     # The backfill's requests are far heavier than the live sync's: 5000 rows
     # from a deep offset, several in flight. The 30s default timeout that suits
     # small list calls turns those into read timeouts, which retry, escalate,
