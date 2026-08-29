@@ -21,13 +21,15 @@ def fixed_now(monkeypatch):
     clock (mirrors the fixture in test_queries.py). The recent-vs route binds
     `utcnow` in its own module namespace, so patch it there."""
     from ai_arena_recap.sync import common as common_module
-    from ai_arena_recap.web.routes import api as api_module
+    from ai_arena_recap.web import season as season_module
 
     def _fake_utcnow():
         return _now()
 
     monkeypatch.setattr(common_module, "utcnow", _fake_utcnow)
-    monkeypatch.setattr(api_module, "utcnow", _fake_utcnow)
+    # The head-to-head window counts back from the season anchor now, so that
+    # is the clock these tests need to hold still.
+    monkeypatch.setattr(season_module, "window_anchor", _fake_utcnow)
     return _now()
 
 

@@ -10,7 +10,6 @@ from sqlalchemy.orm import aliased
 from sqlmodel import Session, select
 
 from ai_arena_recap.models import Bot, CompetitionParticipation, Match, MatchParticipation, Round
-from ai_arena_recap.sync.common import utcnow
 from ai_arena_recap.web import season as season_mod
 
 # Per-opponent matchup window.
@@ -89,11 +88,15 @@ def recent_matchups(
 ) -> list[dict]:
     """Per-opponent record over the last `window_days`, filtered to
     opponents we've played at least `min_games` times."""
-    cutoff = utcnow() - timedelta(days=window_days)
+    # Counted back from the end of the season being viewed, not from today —
+    # otherwise an archived season's window sits entirely after its last match
+    # and this panel is permanently empty.
+    anchor = season_mod.window_anchor()
+    cutoff = anchor - timedelta(days=window_days)
     Opp = aliased(MatchParticipation)
     OppBot = aliased(Bot)
 
-    half_cutoff = utcnow() - timedelta(days=window_days / 2)
+    half_cutoff = anchor - timedelta(days=window_days / 2)
     is_recent = Match.started >= half_cutoff
 
     matches, wins, losses, ties = _wlt_aggregates()
@@ -185,7 +188,7 @@ def recent_matchups(
     per_opp: dict[int, list] = defaultdict(list)
     for opp_id, result, started, elo_chg in timeline_rows:
         started_aware = started if started.tzinfo else started.replace(tzinfo=timezone.utc)
-        age = (utcnow() - started_aware).total_seconds()
+        age = (anchor - started_aware).total_seconds()
         t = round(1 - age / window_seconds, 4)
         per_opp[opp_id].append([t, abbrev.get(result, result), elo_chg])
 

@@ -289,3 +289,52 @@ class TestMatchHistoryStaysInItsSeason:
         body = client.get("/api/bots/1/matchups.json?window_days=365&min_games=1").json()
         # A 365-day window spans both seasons; only this one's game counts.
         assert [(r["opp_name"], r["matches"]) for r in body["data"]] == [("Beta", 1)]
+
+
+class TestWindowsAnchorToTheSeason:
+    """"The last 60 days" has to mean the last 60 days *of the season shown*.
+
+    Measured from today, an archived season's window sits entirely after its
+    final match, so every window-based panel renders empty — which is what the
+    2026 Pre-Season 1 bot pages did once its history was imported."""
+
+    def test_anchor_is_now_for_the_live_season(self, engine, session):
+        _seed(session)
+        with season.use(season.resolve(session, str(CURRENT))):
+            assert (datetime.now(tz=timezone.utc) - season.window_anchor()).total_seconds() < 60
+
+    def test_anchor_is_the_close_date_for_an_archived_season(self, engine, session):
+        _seed(session)
+        with season.use(season.resolve(session, ARCHIVED_SLUG)):
+            assert season.window_anchor() == datetime(2026, 8, 23, tzinfo=timezone.utc)
+
+    def test_the_anchor_is_tz_aware(self, engine, session):
+        """SQLite hands dates back naive; these get compared to aware ones."""
+        _seed(session)
+        with season.use(season.resolve(session, ARCHIVED_SLUG)):
+            assert season.window_anchor().tzinfo is not None
+
+    def test_archived_matchups_are_populated_not_empty(self, engine, session, client):
+        """The case the fix exists for: a season whose matches are long past.
+
+        Dated so a window measured from today cannot reach them — that is
+        exactly the state every archived season is in once it ages out."""
+        _seed_two_season_history(session)
+        long_ago = datetime(2026, 3, 1, tzinfo=timezone.utc)
+        upsert(session, Competition, {
+            "id": ARCHIVED, "name": "Sc2 AI Arena 2026 Season 1", "status": "closed",
+            "date_opened": datetime(2026, 1, 4, tzinfo=timezone.utc),
+            "date_closed": datetime(2026, 3, 5, tzinfo=timezone.utc), "last_synced": NOW,
+        })
+        upsert(session, Match, {
+            "id": 1, "round_id": 1, "started": long_ago, "result_created": long_ago,
+            "result_type": "Player1Win", "result_winner_bot_id": 1,
+            "result_game_steps": 10000, "last_synced": NOW,
+        })
+        session.commit()
+        season.reset()
+
+        body = client.get(
+            f"/s/{ARCHIVED_SLUG}/api/bots/1/matchups.json?window_days=30&min_games=1"
+        ).json()
+        assert [(r["opp_name"], r["matches"]) for r in body["data"]] == [("Beta", 1)]

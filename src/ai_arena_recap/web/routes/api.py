@@ -7,7 +7,6 @@ from sqlalchemy.orm import aliased
 from sqlmodel import Session, func, select
 
 from ai_arena_recap.models import Bot, CompetitionParticipation, Map, Match, MatchParticipation, Round
-from ai_arena_recap.sync.common import utcnow
 from ai_arena_recap.web import season as season_mod
 from ai_arena_recap.web.deps import get_session
 from ai_arena_recap.web.queries import (
@@ -238,7 +237,9 @@ def match_recent_vs_json(
     if len(bot_ids) != 2:
         return {"data": [], "days": days}
 
-    cutoff = utcnow() - timedelta(days=days)
+    # Same anchoring as the matchup window: on an archived season, count back
+    # from when it closed rather than from today.
+    cutoff = season_mod.window_anchor() - timedelta(days=days)
 
     # Match IDs that have both of these bots as participants.
     head_to_head_match_ids = session.exec(

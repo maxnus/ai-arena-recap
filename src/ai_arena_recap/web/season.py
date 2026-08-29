@@ -23,7 +23,7 @@ import re
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlmodel import Session, select
 
@@ -142,6 +142,25 @@ def current() -> Season:
 def cid() -> int:
     """Competition id of the current season — the scope of every read query."""
     return current().id
+
+
+def window_anchor() -> datetime:
+    """The instant a "last N days" window counts back from.
+
+    For the live season that is now. For a closed one it is when the season
+    ended: now is months past its final match, so a window measured from today
+    covers a stretch in which the season did not exist, and every such panel
+    renders empty. Anchoring to the close date makes "the last 60 days" mean
+    the last 60 days *of that season*.
+
+    Always tz-aware. ``date_closed`` comes back from SQLite naive, and these
+    values get compared against aware datetimes in Python.
+    """
+    season = current()
+    if season.closed and season.date_closed is not None:
+        anchor = season.date_closed
+        return anchor if anchor.tzinfo else anchor.replace(tzinfo=timezone.utc)
+    return datetime.now(tz=timezone.utc)
 
 
 def reset() -> None:

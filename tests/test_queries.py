@@ -76,15 +76,19 @@ def _seed_match(
 
 @pytest.fixture()
 def fixed_now(monkeypatch):
-    """Pin `utcnow` so window-relative tests are deterministic."""
+    """Pin the clock so window-relative tests are deterministic.
+
+    Windows now count back from `season.window_anchor()` rather than straight
+    from `utcnow`, so that is what has to be pinned — on an open season it
+    returns the current time, which is the case these tests exercise."""
     from ai_arena_recap.sync import common as common_module
-    from ai_arena_recap.web import queries as queries_module
+    from ai_arena_recap.web import season as season_module
 
     def _fake_utcnow():
         return NOW
 
     monkeypatch.setattr(common_module, "utcnow", _fake_utcnow)
-    monkeypatch.setattr(queries_module, "utcnow", _fake_utcnow)
+    monkeypatch.setattr(season_module, "window_anchor", _fake_utcnow)
     return NOW
 
 
