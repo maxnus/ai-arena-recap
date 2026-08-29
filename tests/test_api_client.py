@@ -251,3 +251,94 @@ class TestBulkPageShrinks:
 
         with pytest.raises(httpx.HTTPStatusError):
             asyncio.run(_run())
+
+
+class TestAdaptiveBackoff:
+    """A fixed rate is a guess about someone else's database. The 2025 import
+    ran fine for an hour and three quarters, then degraded aiarena's
+    participation endpoint with the failure depth sliding steadily lower. Every
+    one of those failures was a signal to ease off that a fixed rate ignored."""
+
+    def _client(self, **kw):
+        return AiArenaClient(base_url="https://x.test", token="t", rate_per_minute=60, **kw)
+
+    @respx.mock
+    def test_a_server_error_widens_the_gap_between_requests(self, fast_sleep):
+        respx.get("https://x.test/thing").mock(return_value=httpx.Response(503))
+
+        async def _run():
+            async with self._client() as c:
+                try:
+                    await c._get("https://x.test/thing", max_attempts=1)
+                except httpx.HTTPStatusError:
+                    pass
+                return c._penalty
+
+        assert asyncio.run(_run()) > 1.0
+
+    @respx.mock
+    def test_backoff_compounds_while_the_server_keeps_failing(self, fast_sleep):
+        respx.get("https://x.test/thing").mock(return_value=httpx.Response(502))
+
+        async def _run():
+            async with self._client() as c:
+                for _ in range(4):
+                    try:
+                        await c._get("https://x.test/thing", max_attempts=1)
+                    except httpx.HTTPStatusError:
+                        pass
+                return c._penalty
+
+        assert asyncio.run(_run()) == 16.0   # 2^4
+
+    @respx.mock
+    def test_backoff_is_capped(self, fast_sleep):
+        from ai_arena_recap.api_client import _MAX_PACE_PENALTY
+        respx.get("https://x.test/thing").mock(return_value=httpx.Response(502))
+
+        async def _run():
+            async with self._client() as c:
+                for _ in range(40):
+                    try:
+                        await c._get("https://x.test/thing", max_attempts=1)
+                    except httpx.HTTPStatusError:
+                        pass
+                return c._penalty
+
+        assert asyncio.run(_run()) == _MAX_PACE_PENALTY
+
+    @respx.mock
+    def test_recovery_is_gradual_not_immediate(self, fast_sleep):
+        """A recovering server must not be hammered the moment it answers once."""
+        respx.get("https://x.test/thing").mock(return_value=httpx.Response(200, json={}))
+
+        async def _run():
+            async with self._client() as c:
+                c._penalty = 8.0
+                await c._get("https://x.test/thing")
+                after_one = c._penalty
+                for _ in range(200):
+                    await c._get("https://x.test/thing")
+                return after_one, c._penalty
+
+        after_one, after_many = asyncio.run(_run())
+        assert 7.0 < after_one < 8.0    # one good response barely moves it
+        assert after_many == 1.0        # sustained success returns to the set rate
+
+    @respx.mock
+    def test_an_unpaced_client_is_unaffected(self, fast_sleep):
+        """The live sync sets no rate, so backoff must cost it nothing."""
+        respx.get("https://x.test/thing").mock(return_value=httpx.Response(502))
+
+        async def _run():
+            async with AiArenaClient(base_url="https://x.test", token="t") as c:
+                try:
+                    await c._get("https://x.test/thing", max_attempts=1)
+                except httpx.HTTPStatusError:
+                    pass
+                import time as _t
+                t0 = _t.monotonic()
+                await c._await_pace()
+                return _t.monotonic() - t0
+
+        assert asyncio.run(_run()) < 0.05

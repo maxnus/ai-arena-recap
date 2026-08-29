@@ -15,6 +15,10 @@ _RETRY_STATUSES = {429, 500, 502, 503, 504}
 # faster than the per-request saving is worth.
 MIN_BULK_PAGE_SIZE = 250
 
+# Ceiling on the pacing backoff multiplier. At 32x a job paced to one request
+# every 4s drops to one every two minutes, which is as good as stopped.
+_MAX_PACE_PENALTY = 32.0
+
 
 class AiArenaClient:
     def __init__(
@@ -36,6 +40,7 @@ class AiArenaClient:
         self._min_interval = 0.0
         self._pace_lock = asyncio.Lock()
         self._next_slot = 0.0
+        self._penalty = 1.0
         self.set_rate_per_minute(rate_per_minute)
 
     def set_rate_per_minute(self, rate: float | None) -> None:
@@ -51,6 +56,28 @@ class AiArenaClient:
         """
         self._min_interval = 60.0 / rate if rate else 0.0
 
+    def _slow_down(self) -> None:
+        """Back off after the server signals distress (5xx or a timeout).
+
+        A fixed rate is a guess about someone else's database. This makes the
+        guess self-correcting: the 2025 import ran fine for an hour and three
+        quarters and then degraded aiarena's participation endpoint, with the
+        depth at which requests failed sliding steadily lower. Every one of
+        those failures was a signal to ease off that a fixed rate could not
+        act on. Unpaced clients are unaffected — the penalty multiplies an
+        interval that is zero for them.
+        """
+        self._penalty = min(self._penalty * 2.0, _MAX_PACE_PENALTY)
+
+    def _speed_up(self) -> None:
+        """Ease back toward the configured rate after a clean response.
+
+        Decays slowly and geometrically: roughly 35 good responses to undo one
+        backoff step, so a recovering server is approached gently rather than
+        immediately hammered again."""
+        if self._penalty > 1.0:
+            self._penalty = max(1.0, self._penalty * 0.98)
+
     async def _await_pace(self) -> None:
         """Block until this request's turn in the paced schedule.
 
@@ -64,7 +91,7 @@ class AiArenaClient:
         async with self._pace_lock:
             now = loop.time()
             start = max(now, self._next_slot)
-            self._next_slot = start + self._min_interval
+            self._next_slot = start + self._min_interval * self._penalty
         delay = start - now
         if delay > 0:
             await asyncio.sleep(delay)
@@ -78,25 +105,40 @@ class AiArenaClient:
     async def __aexit__(self, *_exc) -> None:
         await self.close()
 
-    async def _get(self, url: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    async def _get(
+        self, url: str, params: dict[str, Any] | None = None, *, max_attempts: int = 5
+    ) -> dict[str, Any]:
+        """GET with retry/backoff, and pacing feedback.
+
+        ``max_attempts`` is 5 for ordinary calls, where a 5xx is usually a blip
+        worth riding out. Callers that can make the request *cheaper* instead
+        should pass a lower count: retrying an over-expensive query unchanged
+        costs the server the same failed work every time, so the bulk pager
+        would rather learn quickly and ask for less.
+        """
         await self._await_pace()
         async with self._sem:
-            for attempt in range(5):
+            last = max_attempts - 1
+            for attempt in range(max_attempts):
                 try:
                     response = await self._client.get(url, params=params)
                 except httpx.TransportError as exc:
-                    if attempt == 4:
+                    self._slow_down()
+                    if attempt == last:
                         raise
                     delay = 2**attempt
                     log.warning("Transport error %s, retrying in %ss", exc, delay)
                     await asyncio.sleep(delay)
                     continue
-                if response.status_code in _RETRY_STATUSES and attempt < 4:
-                    delay = 2**attempt
-                    log.warning("HTTP %s on %s, retrying in %ss", response.status_code, url, delay)
-                    await asyncio.sleep(delay)
-                    continue
+                if response.status_code in _RETRY_STATUSES:
+                    self._slow_down()
+                    if attempt < last:
+                        delay = 2**attempt
+                        log.warning("HTTP %s on %s, retrying in %ss", response.status_code, url, delay)
+                        await asyncio.sleep(delay)
+                        continue
                 response.raise_for_status()
+                self._speed_up()
                 return response.json()
         raise RuntimeError("unreachable")
 
@@ -177,7 +219,7 @@ class AiArenaClient:
                 "ordering": "id", "offset": offset,
             }
             try:
-                data = await self._get(url, params)
+                data = await self._get(url, params, max_attempts=2)
             except (httpx.HTTPStatusError, httpx.TransportError):
                 if limit <= MIN_BULK_PAGE_SIZE:
                     raise

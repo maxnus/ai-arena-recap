@@ -197,18 +197,24 @@ async def _plan_requests(
     page = settings.backfill_page_size
     participation_pages = sum((c + page - 1) // page for c in careers)
 
+    # Only rounds still to do. Counting the finished ones inflated the estimate
+    # by 43% on a resumed run, which drove the pacer to move faster than the
+    # remaining work justified — the opposite of what a throttle is for.
     rounds = 0
     matches = 0
     for competition_id in competition_ids:
         rounds += len(session.exec(
-            select(Round.id).where(Round.competition_id == competition_id)
+            select(Round.id)
+            .where(Round.competition_id == competition_id)
+            .where(Round.complete == False)  # noqa: E712
         ).all())
         matches += len(session.exec(
             select(Match.id)
             .join(Round, Match.round_id == Round.id)  # type: ignore[arg-type]
             .where(Round.competition_id == competition_id)
+            .where(Round.complete == False)  # noqa: E712
         ).all())
-    if not rounds:
+    if not rounds and not _in_scope_match_ids(session, competition_ids):
         # Rounds aren't imported yet on a first run; size them from the API.
         for competition_id in competition_ids:
             d = await client._get(f"{client.base_url}/rounds/",
