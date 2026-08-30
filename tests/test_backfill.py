@@ -368,3 +368,60 @@ class TestBotsMissingFromStandings:
         client = _client()
         asyncio.run(backfill(session, client, [COMP]))
         assert client.per_match_calls == []
+
+
+class TestSkipHeuristicCanBeWrong:
+    """`match_count` counts games that produced a result, so a bot whose games
+    all failed to start has a floor of one row. Once a partial run gave it one,
+    every later run treated it as finished and its remaining thousands were
+    never fetched — 9,606 matches left a row short across the 2025 seasons.
+    The short matches themselves have to be able to overrule the heuristic."""
+
+    def _client_with_error_bot(self) -> _FakeClient:
+        client = _client()
+        # Bot 30 is in the standings with match_count 0 but owns real rows.
+        client._participations.append(
+            {"id": 3, "competition": COMP, "bot": 30, "elo": 1600, "division_num": 0,
+             "active": False, "match_count": 0, "win_count": 0, "loss_count": 0}
+        )
+        client._matches[900].append(
+            {"id": 5003, "round": 900, "map": 1, "started": _iso(7),
+             "result": {"type": "InitializationError", "winner": None,
+                        "created": _iso(7), "game_steps": 0}},
+        )
+        def err(pid, bot):
+            return {"id": pid, "match": 5003, "bot": bot, "participant_number": 1,
+                    "starting_elo": 1600, "resultant_elo": 1600, "elo_change": 0,
+                    "avg_step_time": None, "result": "none",
+                    "result_cause": "initialization_failure"}
+        client._careers[30] = [err(7, 30)]
+        client._careers[10].append(err(8, 10))
+        return client
+
+    def test_a_bot_already_holding_one_row_is_still_swept(self, session):
+        client = self._client_with_error_bot()
+        # Simulate the partial state: bot 30 already has a single row, which
+        # satisfies its floor of 1 and would otherwise mark it complete.
+        asyncio.run(backfill(session, client, [COMP]))
+        session.exec(select(MatchParticipation)).all()
+
+        # Drop bot 30's row for 5003 and give it an unrelated one, so stored=1
+        # while the match it owns stays short.
+        session.delete(session.get(MatchParticipation, 7))
+        session.commit()
+
+        again = self._client_with_error_bot()
+        asyncio.run(backfill(session, again, [COMP]))
+
+        assert 30 in again.bots_paged
+        rows = session.exec(
+            select(MatchParticipation.bot_id).where(MatchParticipation.match_id == 5003)
+        ).all()
+        assert sorted(rows) == [10, 30]
+
+    def test_a_fully_imported_season_needs_no_second_pass(self, session, caplog):
+        """The overrule must not make every run re-sweep everything."""
+        asyncio.run(backfill(session, self._client_with_error_bot(), [COMP]))
+        again = self._client_with_error_bot()
+        asyncio.run(backfill(session, again, [COMP]))
+        assert again.bots_paged == []

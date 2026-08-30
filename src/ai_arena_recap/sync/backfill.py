@@ -147,19 +147,26 @@ def _short_match_ids(
     return list(session.exec(stmt).all())
 
 
-async def _discover_unlisted_bots(
-    session: Session, client: AiArenaClient, competition_ids: list[int], known: set[int]
+async def _discover_row_owners(
+    session: Session, client: AiArenaClient, competition_ids: list[int], swept: set[int]
 ) -> set[int]:
-    """Bot ids that played these competitions but aren't in their standings.
+    """Bots that own missing rows and have not been paged this run.
 
-    A bot can appear in a season's matches and not in its
-    competition-participations list at all — bot 990 played 9,870
-    InitializationError games in 2026 Pre-Season 1 and is absent from its
-    standings, leaving every one of those matches a row short. Its rows are
-    unreachable from the standings, so ask a sample of the short matches who
-    owns them. It only takes a few matches to name the bot; one bulk sweep of
-    that bot then fixes all of them, which beats repairing ten thousand matches
-    one request at a time.
+    Asks a sample of the short matches directly who owns their missing rows.
+    Two different bots end up here, and excluding either leaves data behind:
+
+    * Bots absent from the standings entirely — bot 990 played 9,870
+      InitializationError games in 2026 Pre-Season 1 with no
+      competition-participation row at all.
+    * Bots in the standings that the skip heuristic wrongly cleared. A bot
+      whose games all failed to start has ``match_count`` 0, so its floor is a
+      single row; once a partial run had given it one, every later run
+      considered it finished and its remaining thousands were never fetched.
+      That left 9,606 matches a row short across the 2025 seasons.
+
+    So the only exclusion is what this run already paged. Naming a bot costs a
+    handful of per-match requests; one bulk sweep then fixes every match it
+    touches, which beats repairing them one request at a time.
     """
     sample = _short_match_ids(session, competition_ids, limit=_DISCOVERY_SAMPLE, scatter=True)
     if not sample:
@@ -174,7 +181,7 @@ async def _discover_unlisted_bots(
         for p in items:
             if isinstance(p.get("bot"), int):
                 found.add(p["bot"])
-    return found - known
+    return found - swept
 
 
 async def _plan_requests(
@@ -354,14 +361,12 @@ async def backfill(
             # Two reasons to come back round: a bot whose pages timed out and
             # exhausted their retries, and a bot that owns rows but never
             # appeared in the standings, which only the matches can name.
-            unlisted = await _discover_unlisted_bots(
-                session, client, competition_ids, known=set(expected) | swept
-            )
-            if unlisted:
-                log.info("Found %d bots with rows here but no standings entry: %s",
-                         len(unlisted), sorted(unlisted))
-                expected.update({bot_id: 1 for bot_id in unlisted})
-            todo |= unlisted
+            owners = await _discover_row_owners(session, client, competition_ids, swept)
+            if owners:
+                log.info("Found %d bots still owing rows: %s", len(owners), sorted(owners))
+                for bot_id in owners:
+                    expected.setdefault(bot_id, 1)
+            todo |= owners
             if todo:
                 log.info("Pass %d: paging %d bots", attempt, len(todo))
         if not todo:
