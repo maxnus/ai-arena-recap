@@ -287,9 +287,10 @@ class TestAdaptiveBackoff:
                         await c._get("https://x.test/thing", max_attempts=1)
                     except httpx.HTTPStatusError:
                         pass
-                return c._penalty
+                return c._current_penalty()
 
-        assert asyncio.run(_run()) == 16.0   # 2^4
+        # 2^4, give or take the sliver of real time that elapsed between calls.
+        assert 15.9 < asyncio.run(_run()) <= 16.0
 
     @respx.mock
     def test_backoff_is_capped(self, fast_sleep):
@@ -303,27 +304,52 @@ class TestAdaptiveBackoff:
                         await c._get("https://x.test/thing", max_attempts=1)
                     except httpx.HTTPStatusError:
                         pass
-                return c._penalty
+                return c._current_penalty()
 
-        assert asyncio.run(_run()) == _MAX_PACE_PENALTY
+        assert asyncio.run(_run()) > _MAX_PACE_PENALTY * 0.99
 
-    @respx.mock
-    def test_recovery_is_gradual_not_immediate(self, fast_sleep):
-        """A recovering server must not be hammered the moment it answers once."""
-        respx.get("https://x.test/thing").mock(return_value=httpx.Response(200, json={}))
+    def test_recovery_is_measured_in_time_not_responses(self, monkeypatch):
+        """Recovery must not depend on request volume.
+
+        Tying it to responses looked fine and was badly wrong under heavy
+        pacing: a job at 2.8 requests/min that took three errors sat at 8x for
+        hours, because undoing a doubling needed ~35 clean responses and it was
+        making one request every three minutes. A 5-hour import projected to 49.
+        """
+        from ai_arena_recap.api_client import _PENALTY_HALFLIFE_SECONDS
 
         async def _run():
             async with self._client() as c:
-                c._penalty = 8.0
-                await c._get("https://x.test/thing")
-                after_one = c._penalty
-                for _ in range(200):
-                    await c._get("https://x.test/thing")
-                return after_one, c._penalty
+                clock = {"t": 1000.0}
+                monkeypatch.setattr("ai_arena_recap.api_client.time.monotonic",
+                                    lambda: clock["t"])
+                for _ in range(3):
+                    c._slow_down()
+                assert c._current_penalty() == 8.0        # three failures
 
-        after_one, after_many = asyncio.run(_run())
-        assert 7.0 < after_one < 8.0    # one good response barely moves it
-        assert after_many == 1.0        # sustained success returns to the set rate
+                clock["t"] += _PENALTY_HALFLIFE_SECONDS   # one half-life, no requests
+                assert c._current_penalty() == 4.0
+                clock["t"] += _PENALTY_HALFLIFE_SECONDS * 2
+                assert c._current_penalty() == 1.0        # fully recovered, still idle
+
+        asyncio.run(_run())
+
+    def test_a_fresh_failure_compounds_on_the_decayed_value(self, monkeypatch):
+        """Backing off again must not restart from the original spike."""
+        from ai_arena_recap.api_client import _PENALTY_HALFLIFE_SECONDS
+
+        async def _run():
+            async with self._client() as c:
+                clock = {"t": 1000.0}
+                monkeypatch.setattr("ai_arena_recap.api_client.time.monotonic",
+                                    lambda: clock["t"])
+                for _ in range(3):
+                    c._slow_down()                        # 8x
+                clock["t"] += _PENALTY_HALFLIFE_SECONDS   # decayed to 4x
+                c._slow_down()
+                assert c._current_penalty() == 8.0        # 4x doubled, not 16x
+
+        asyncio.run(_run())
 
     @respx.mock
     def test_an_unpaced_client_is_unaffected(self, fast_sleep):

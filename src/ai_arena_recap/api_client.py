@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -18,6 +19,10 @@ MIN_BULK_PAGE_SIZE = 250
 # Ceiling on the pacing backoff multiplier. At 32x a job paced to one request
 # every 4s drops to one every two minutes, which is as good as stopped.
 _MAX_PACE_PENALTY = 32.0
+
+# How long a backoff step takes to undo itself once the errors stop. Time-based
+# so that a heavily paced job, which makes few requests, still recovers.
+_PENALTY_HALFLIFE_SECONDS = 300.0
 
 
 class AiArenaClient:
@@ -41,6 +46,7 @@ class AiArenaClient:
         self._pace_lock = asyncio.Lock()
         self._next_slot = 0.0
         self._penalty = 1.0
+        self._penalty_set_at = 0.0
         self.set_rate_per_minute(rate_per_minute)
 
     def set_rate_per_minute(self, rate: float | None) -> None:
@@ -56,6 +62,22 @@ class AiArenaClient:
         """
         self._min_interval = 60.0 / rate if rate else 0.0
 
+    def _current_penalty(self) -> float:
+        """Backoff multiplier now, decayed by how long since the last failure.
+
+        Recovery is measured in time, not in responses. Tying it to responses
+        looked fine and was badly wrong under heavy pacing: a job at 2.8
+        requests/min that took three errors sat at 8x for hours, because
+        undoing one doubling needed ~35 clean responses and it was only making
+        one request every three minutes. The throttle throttled its own
+        recovery, and a 5-hour import projected out to 49.
+        """
+        if self._penalty <= 1.0:
+            return 1.0
+        elapsed = time.monotonic() - self._penalty_set_at
+        decayed = self._penalty * 0.5 ** (elapsed / _PENALTY_HALFLIFE_SECONDS)
+        return max(1.0, decayed)
+
     def _slow_down(self) -> None:
         """Back off after the server signals distress (5xx or a timeout).
 
@@ -67,16 +89,8 @@ class AiArenaClient:
         act on. Unpaced clients are unaffected — the penalty multiplies an
         interval that is zero for them.
         """
-        self._penalty = min(self._penalty * 2.0, _MAX_PACE_PENALTY)
-
-    def _speed_up(self) -> None:
-        """Ease back toward the configured rate after a clean response.
-
-        Decays slowly and geometrically: roughly 35 good responses to undo one
-        backoff step, so a recovering server is approached gently rather than
-        immediately hammered again."""
-        if self._penalty > 1.0:
-            self._penalty = max(1.0, self._penalty * 0.98)
+        self._penalty = min(self._current_penalty() * 2.0, _MAX_PACE_PENALTY)
+        self._penalty_set_at = time.monotonic()
 
     async def _await_pace(self) -> None:
         """Block until this request's turn in the paced schedule.
@@ -91,7 +105,7 @@ class AiArenaClient:
         async with self._pace_lock:
             now = loop.time()
             start = max(now, self._next_slot)
-            self._next_slot = start + self._min_interval * self._penalty
+            self._next_slot = start + self._min_interval * self._current_penalty()
         delay = start - now
         if delay > 0:
             await asyncio.sleep(delay)
@@ -138,7 +152,6 @@ class AiArenaClient:
                         await asyncio.sleep(delay)
                         continue
                 response.raise_for_status()
-                self._speed_up()
                 return response.json()
         raise RuntimeError("unreachable")
 
