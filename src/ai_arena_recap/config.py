@@ -32,18 +32,16 @@ class Settings(BaseSettings):
     # The aiarena.net API honours large page sizes (tested up to 10000), so pull
     # list endpoints in big pages to minimise the number of HTTP round-trips.
     api_page_size: int = 500
-    # Page size for the backfill's per-bot participation sweep. That endpoint
-    # only offers offset pagination, and offsets get expensive with depth — a
-    # bot with 150k rows is 300 pages of ever-deeper scanning at 500/page.
-    # Bigger pages cut the number of times we pay that: measured 2.3x faster
-    # over one 55k-row career. Kept separate from api_page_size so the live
-    # sync's small, frequent list calls stay small.
-    # Starting page size; the client shrinks it when the server starts failing
-    # deep offsets. 5000 measured fastest on a cold API but produced 502/504s
-    # past offset 25000 during the 2025 import, so start somewhere it survives.
+    # Starting page size for the backfill's per-bot participation sweep, which
+    # the client shrinks when the server starts failing deep offsets. That
+    # endpoint only offers offset pagination and offsets get costlier with
+    # depth, so bigger pages pay that cost fewer times — but 5000, which
+    # measured fastest against a rested API, produced 502/504s past offset
+    # 25000 under sustained load. Start where it survives and let it adapt.
+    # Separate from api_page_size so the live sync's small list calls stay small.
     backfill_page_size: int = 2000
-    # The backfill's requests are far heavier than the live sync's: 5000 rows
-    # from a deep offset, several in flight. The 30s default timeout that suits
+    # The backfill's requests are far heavier than the live sync's: thousands of
+    # rows from a deep offset, several in flight. The 30s default that suits
     # small list calls turns those into read timeouts, which retry, escalate,
     # and eventually exhaust — a first run lost 4 bots that way.
     backfill_timeout_seconds: float = 180.0

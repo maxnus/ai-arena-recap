@@ -2,22 +2,33 @@
 
 The live sync fetches match participations one request per match. That is the
 right shape for a season in progress — a few hundred new matches per tick — and
-the wrong shape entirely for a closed season: 2026 Pre-Season 1 alone is ~69,000
-matches, which at the ~3.5 matches/sec the API sustains is over five hours of
-requests, with 504s appearing under the load.
+the wrong shape entirely for a closed season, which is a hundred thousand
+matches or more.
 
 This module uses the other axis. `/match-participations/` takes no competition
 filter and ignores id/match range filters, and paging it unfiltered dies at 504
-past roughly a million rows of offset — but filtered by bot it pages reliably to
-the end of that bot's career, 500 rows per request. A season has ~100 bots, so
-its participation history costs thousands of requests instead of hundreds of
-thousands. The trade is that the API cannot narrow a bot's history to one
-season, so we page whole careers and keep the rows whose match is in scope
-(~13x over-read for one season; ~3.5x when several are imported together, since
-each career is paged once no matter how many seasons want rows from it).
+past roughly a million rows of offset — but filtered by bot it pages to the end
+of that bot's career. A season has ~100 bots, so its participation history costs
+thousands of requests instead of hundreds of thousands. The trade is that the
+API cannot narrow a bot's history to one season, so we page whole careers and
+keep the rows whose match is in scope (~13x over-read for one season; ~3.5x when
+several are imported together, since each career is paged once no matter how
+many seasons want rows from it). Import several competitions in one call when
+you want several — that is where the sharing happens.
 
-Import several competitions in one call when you want several — that is where
-the sharing happens.
+Two things learned by getting this wrong against the live API, both handled in
+`AiArenaClient` rather than here:
+
+* **Rate is what matters.** ~26 requests/min degraded aiarena's participation
+  endpoint over about two hours — the offset at which requests failed slid
+  steadily lower until even single-match lookups 502'd — and it recovered a
+  minute after we stopped. The same work at ~3/min ran seven hours with no
+  errors at all. Use ``spread_seconds``; it is not decoration.
+* **Deep offsets are the expensive part**, so the page size shrinks when the
+  server starts refusing, rather than retrying the same too-costly request.
+
+Safe to interrupt and re-run: it resumes from what is already stored, and
+reports any match still missing a participation row.
 """
 import asyncio
 import logging

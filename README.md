@@ -52,12 +52,13 @@ ai-arena-recap sync --competition 36 --max-rounds 0
 # Import a past season in full, match history included (tens of minutes).
 # Pass several at once — that pages each bot's history once instead of once
 # per season. Safe to interrupt; re-running resumes.
-ai-arena-recap backfill --competition 35
-ai-arena-recap backfill -c 34 -c 33 -c 32
+# Always pace it: aim for ~3 requests/min, which means hours, not minutes.
+# Faster degrades aiarena.net's participation endpoint (see AGENTS.md).
+# Safe to interrupt — re-running resumes.
+ai-arena-recap backfill --competition 30 --spread-hours 8
 
-# Same work, trickled out over ~3 hours instead of ~40 minutes, so the
-# request load on aiarena.net stays close to what the live sync already makes.
-ai-arena-recap backfill -c 34 -c 33 -c 32 -c 31 --spread-hours 3
+# Several at once pages each bot's career once instead of once per season.
+ai-arena-recap backfill -c 30 -c 28 -c 27 --spread-hours 12
 
 # Start the web server (http://127.0.0.1:8000)
 ai-arena-recap serve

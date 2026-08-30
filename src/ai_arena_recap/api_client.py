@@ -155,11 +155,9 @@ class AiArenaClient:
                 return response.json()
         raise RuntimeError("unreachable")
 
-    async def _paginate(
-        self, path: str, params: dict[str, Any] | None = None, *, page_size: int | None = None
-    ) -> AsyncIterator[dict[str, Any]]:
+    async def _paginate(self, path: str, params: dict[str, Any] | None = None) -> AsyncIterator[dict[str, Any]]:
         url: str | None = f"{self.base_url}{path}"
-        merged = {"format": "json", "limit": page_size or settings.api_page_size, **(params or {})}
+        merged = {"format": "json", "limit": settings.api_page_size, **(params or {})}
         while url:
             data = await self._get(url, params=merged)
             for item in data.get("results", []):
@@ -217,7 +215,7 @@ class AiArenaClient:
         Pages shrink as they get expensive. Server cost grows with offset, so a
         page size that is comfortable at the start of a long career starts
         returning 502/504 deep into it: at 5000 rows, offsets past 25,000 failed
-        even after five retries, losing whole bots. On failure the page size
+        repeatedly and lost whole bots. On failure the page size
         drops and the same offset is retried — offsets are row counts, so
         changing the page size mid-career is safe — and it never grows back,
         since offsets only get deeper.

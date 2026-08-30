@@ -132,14 +132,20 @@ fix the underlying issue (don't just rerun) and push again.
 - `sync --competition N --max-rounds 0` — final standings only, a few seconds.
   The ladder page is complete; match-derived things (ELO chart, match history,
   half the ranking cards) stay empty.
-- `backfill --competition N` — everything, tens of minutes. See
+- `backfill --competition N --spread-hours 8` — everything, several hours. See
   `sync/backfill.py`: the live sync's one-request-per-match participation fetch
   is unusable at this scale, so the backfill pages `/match-participations/` by
   bot instead (the only filter that pages reliably to depth) and keeps the rows
   whose match is in scope. Pass several competitions in one call — each bot's
-  career is then paged once rather than once per season. `--spread-hours N`
-  paces the run: same requests, spread thin enough that a one-off import
-  doesn't land on aiarena.net as a burst.
+  career is then paged once rather than once per season.
+
+  **Always pass `--spread-hours`, and size it for roughly 3 requests/min.**
+  This is not politeness, it is the difference between working and not: at ~26
+  requests/min the 2025 import degraded aiarena's participation endpoint over
+  about two hours, losing bots to 502s, and it recovered a minute after we
+  stopped. The same work at ~3/min ran seven hours with zero errors. Their
+  public site stays fast either way, so cheap probes will not warn you — the
+  signal is requests failing at progressively shallower offsets.
 
 ## Sync health
 
