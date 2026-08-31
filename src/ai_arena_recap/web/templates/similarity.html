@@ -1,0 +1,352 @@
+{% extends "base.html" %}
+{% block title %}Play-style similarity &middot; {{ competition.name if competition else 'AI Arena Recap' }}{% endblock %}
+{% block content %}
+  <h1>Play-style similarity</h1>
+
+  <p class="hint">
+    How alike do two bots <em>play</em>? For every pair this compares who they beat and
+    lose to, after subtracting what ELO already predicts &mdash; so it measures style, not
+    strength. Two bots of equal rating score near zero unless they actually
+    over- and under-perform against the <em>same</em> opponents.
+    <a href="https://github.com/maxnus/AI-Arena-Recap/blob/main/docs/similarity-model.md" target="_blank" rel="noopener">How it works</a>.
+  </p>
+
+  <div class="sim-caveat">
+    <strong>Read this as similarity, not as an accusation.</strong> A high score has plenty of
+    innocent explanations: a shared open-source template, the same standard build order, or
+    simply two bots by the same author. There is only one way to 12-pool, and two bots that
+    both do it will look alike here.
+  </div>
+
+  {% if not races %}
+    <div class="rank-empty">Not enough match data in this season yet.</div>
+  {% else %}
+    <h2 class="rank-group">Matrix</h2>
+    <p class="hint">
+      Bots are ordered by ELO, strongest first. Only same-race pairs are compared (Random
+      bots appear in every matrix, since they play all three). A cell compares how the two
+      bots fared against the opponents they <em>both</em> faced &mdash; whether they ever played
+      each other makes no difference, and most scored pairs never have. Blank cells are pairs
+      with fewer than {{ min_common }} opponents in common. Hover any cell for the detail.
+    </p>
+
+    <div class="sim-key">
+      <span class="sim-key-label">Style correlation, different authors</span>
+      <span class="sim-key-ramp" aria-hidden="true"></span>
+      <span class="sim-key-ends">0 &nbsp;&rarr;&nbsp; +1</span>
+      <span class="sim-key-sep"></span>
+      <span class="sim-key-label">Same author</span>
+      <span class="sim-key-ramp sim-key-ramp-same" aria-hidden="true"></span>
+      <span class="sim-key-ends">0 &nbsp;&rarr;&nbsp; +1</span>
+    </div>
+
+    <div class="sim-tabs" id="sim-tabs">
+      {% for r in races %}
+        <button type="button" class="sim-tab{% if r.code == default_race %} active{% endif %}"
+                data-race="{{ r.code }}">{{ r.label }} <span class="sim-tab-n">{{ r.count }}</span></button>
+      {% endfor %}
+    </div>
+
+    <div class="sim-heatmap-wrap">
+      <div id="sim-heatmap"></div>
+    </div>
+
+    <h2 class="rank-group">Most similar pairs</h2>
+    <p class="hint">
+      Ranked by how far the correlation sits above 0.5 <em>relative to its spread</em>, so a
+      pair rises only when the correlation is large and the evidence behind it is solid. A
+      striking number resting on a dozen shared opponents has a wide spread and sinks. Sort any
+      column to reorder, and the <strong>#</strong> column to come back.
+    </p>
+    <div class="sim-toolbar">
+      <button type="button" class="sim-tab" id="sim-hide-same" aria-pressed="false">Hide same-author pairs</button>
+    </div>
+    <div id="sim-grid" class="ag-theme-quartz-dark grid-host"></div>
+  {% endif %}
+
+  <script>
+    // Sequential, not diverging. The page hunts bots that play ALIKE, so the
+    // whole ramp is spent on positive correlation instead of half of it on the
+    // negative half we do not act on — which doubles the resolution where it
+    // matters. Negative rho clamps to the base colour and reads as "not
+    // similar"; the true value, sign included, stays in the hover.
+    //
+    // Dropping the diverging scheme frees blue for the same-author ramp, and
+    // that fixes a real weakness: the slate previously used sat at dE 9.4 from
+    // the old blue arm, inside the colour-vision warn band. Red against blue
+    // separates at dE 30.6 under the worst CVD simulation, and — the useful
+    // property — separation grows with rho, so the two categories diverge
+    // exactly where the distinction carries weight (7.9 at rho 0.25, 15.8 at
+    // 0.50, 30.6 at 1.00). Both ramps are OKLab-interpolated from the shared
+    // base, which stays distinct from an empty cell (dE 20.9).
+    const RHO_SCALE = [
+      [0.00, "#3d4450"],
+      [0.25, "#664d52"],
+      [0.50, "#8e5453"],
+      [0.75, "#b75952"],
+      [1.00, "#e05c4f"],
+    ];
+    // One author's own bots resembling each other is the expected case, so they
+    // get the calm ramp rather than the alarming one.
+    const SAME_AUTHOR_SCALE = [
+      [0.00, "#3d4450"],
+      [0.25, "#3f5573"],
+      [0.50, "#3f6698"],
+      [0.75, "#3e76be"],
+      [1.00, "#3987e5"],
+    ];
+    const SIM_INK = "#e6edf3";
+    const SIM_MUTED = "#8b949e";
+    const SIM_SURFACE = "#161b22";
+    // The neutral midpoint of RHO_SCALE, as rgb. Uncertain cells fade toward
+    // *this*, not toward the page background: "we cannot say" and "these two
+    // never met" have to stay visually distinct.
+    const SIM_NEUTRAL = "61,68,80";
+    // Cap the veil so even the vaguest cell keeps a trace of its colour —
+    // fully erasing it would make it read as an empty cell.
+    const MAX_VEIL = 0.85;
+    // Posterior spread at which a cell carries essentially no information.
+    // Observed spreads run ~0.11 (well pinned) to ~0.63 (a pair at the
+    // minimum shared-opponent threshold), so 0.55 is near the uninformative end.
+    const SD_REF = 0.55;
+
+    function fmtRho(v) { return v === null || v === undefined ? "—" : (v >= 0 ? "+" : "") + v.toFixed(2); }
+
+    async function drawMatrix(race) {
+      const res = await fetch(seasonUrl(`/api/similarity/matrix.json?race=${encodeURIComponent(race)}`));
+      if (!res.ok) return;
+      const m = await res.json();
+
+      // Who a bot is written by is half of what makes a high score interesting —
+      // two bots by one author are the expected case — so both names lead the
+      // hover with their author in parentheses. Repeating one author across both
+      // sides says "same author" on its own; no extra line needed for it.
+      const named = (i) => `<b>${escapeHtml(m.labels[i])}</b> (${escapeHtml(m.authors[i] || "unknown")})`;
+      const elo = (i) => m.elos[i] ?? "?";
+      const sameAuthor = (i, j) => Boolean(m.authors[i]) && m.authors[i] === m.authors[j];
+
+      // Plotly needs parallel arrays for hover text; build one cell at a time so
+      // "no data" stays distinguishable from "no similarity".
+      const hover = m.z.map((row, i) => row.map((v, j) => {
+        if (i === j) return `${named(i)}<br>ELO ${elo(i)}<br>(itself)`;
+        const head = `${named(j)} vs ${named(i)}<br>ELO ${elo(j)} vs ${elo(i)}`;
+        if (v === null) return `${head}<br>not enough shared opponents`;
+        const meta = m.meta[i][j] || {};
+        // "+0.89 ±0.12" reads as value-and-uncertainty, which is what it is. Note
+        // the posterior is left-skewed, so this is a spread and NOT half a
+        // credible interval — see docs/similarity-model.md §7.
+        return `${head}`
+             + `<br>style correlation <b>${fmtRho(v)}</b> &plusmn;${(meta.sd ?? 0).toFixed(2)}`
+             + `<br>${meta.n ?? 0} shared opponents · ${meta.games ?? 0} games`;
+      }));
+
+      // Split the correlation into two traces so each can carry its own scale.
+      // Every cell appears in exactly one of them; the other holds null there.
+      const pick = (want) => m.z.map((row, i) => row.map((v, j) =>
+        (v === null || sameAuthor(i, j) !== want ? null : v)));
+      const zCross = pick(false);
+      const zSame = pick(true);
+      const anySame = zSame.some((row) => row.some((v) => v !== null));
+
+      // Labels on all four sides: a 100-row matrix is unreadable if you have to
+      // track a row back to a single distant axis. Plotly draws one tick side
+      // per axis, so the top and right copies are overlaying axes carrying an
+      // invisible anchor trace (an axis with no trace on it is not rendered).
+      const n = m.labels.length;
+      const idx = m.labels.map((_, i) => i);
+      const mirrorAxis = (extra) => ({
+        overlaying: extra.overlaying, side: extra.side, range: extra.range,
+        tickmode: "array", tickvals: idx, ticktext: m.labels,
+        tickfont: { size: 9, color: SIM_MUTED }, tickangle: extra.tickangle ?? 0,
+        showgrid: false, zeroline: false, ticks: "",
+      });
+
+      // Right margin now carries a label column, so the colourbar has to clear
+      // it or it lands on top of the names. Both are measured in px and the
+      // colourbar's x is a fraction of the plot area, so it is computed.
+      const LABEL_GUTTER = 150;
+      const BAR_GUTTER = 130;
+      const margin = { l: LABEL_GUTTER, r: LABEL_GUTTER + BAR_GUTTER, t: LABEL_GUTTER, b: LABEL_GUTTER };
+      const size = Math.max(480, Math.min(24 * n + 340, 1800));
+      const canvasWidth = size + BAR_GUTTER;
+      const plotWidth = Math.max(1, canvasWidth - margin.l - margin.r);
+      const barX = 1 + (LABEL_GUTTER + 24) / plotWidth;
+
+      Plotly.newPlot("sim-heatmap", [{
+        type: "heatmap",
+        name: "rho",
+        z: zCross,
+        x: m.labels,
+        y: m.labels,
+        zmin: 0, zmax: 1,
+        colorscale: RHO_SCALE,
+        xgap: 1, ygap: 1,
+        hoverongaps: false,
+        text: hover,
+        hovertemplate: "%{text}<extra></extra>",
+        colorbar: {
+          title: { text: "style<br>correlation", font: { color: SIM_MUTED, size: 11 } },
+          tickfont: { color: SIM_MUTED, size: 10 },
+          outlinewidth: 0, thickness: 12, len: 0.5, y: 0.5,
+          x: barX, xanchor: "left",
+          tickvals: [0, 0.25, 0.5, 0.75, 1],
+        },
+      }, {
+        // Same-author pairs, on the muted arm. Hidden entirely when the season
+        // has none, so an empty trace cannot swallow hovers.
+        type: "heatmap",
+        name: "rho",
+        z: zSame,
+        x: m.labels,
+        y: m.labels,
+        zmin: 0, zmax: 1,
+        colorscale: SAME_AUTHOR_SCALE,
+        xgap: 1, ygap: 1,
+        hoverongaps: false,
+        text: hover,
+        hovertemplate: "%{text}<extra></extra>",
+        showscale: false,
+        visible: anySame,
+      }, {
+        // Veil drawn over the correlation: hue carries the estimate, saturation
+        // carries how well we know it. Keyed on the posterior spread, NOT on
+        // P(rho > 0.5) — that is ~0 for every negative correlation however well
+        // established, so keying on it silently erased half the data (49% of
+        // pairs are negative, and cells below -0.4 were veiled at 0.84 while
+        // cells above +0.7 sat at 0.07). Spread treats the two signs alike.
+        type: "heatmap",
+        z: m.meta.map((row, i) => row.map((c, j) =>
+          (m.z[i][j] === null ? null : MAX_VEIL * Math.min(1, (c ? c.sd : SD_REF) / SD_REF)))),
+        x: m.labels, y: m.labels,
+        zmin: 0, zmax: 1,
+        colorscale: [[0, `rgba(${SIM_NEUTRAL},0)`], [1, `rgba(${SIM_NEUTRAL},1)`]],
+        xgap: 1, ygap: 1,
+        showscale: false,
+        hoverinfo: "skip",   // let hover fall through to the correlation below
+      }, {
+        // Anchor only — invisible, unhoverable, exists so x2/y2 get drawn.
+        type: "scatter", x: [0], y: [0], xaxis: "x2", yaxis: "y2",
+        mode: "markers", marker: { opacity: 0 }, hoverinfo: "skip", showlegend: false,
+      }], {
+        margin: margin,
+        width: canvasWidth, height: size,
+        paper_bgcolor: "rgba(0,0,0,0)",
+        plot_bgcolor: SIM_SURFACE,
+        font: { color: SIM_INK, size: 10 },
+        showlegend: false,
+        xaxis: { tickangle: -60, tickfont: { size: 9, color: SIM_MUTED }, showgrid: false, ticks: "" },
+        yaxis: { autorange: "reversed", tickfont: { size: 9, color: SIM_MUTED }, showgrid: false, ticks: "" },
+        // Category axes put cell k at coordinate k, so the linear mirrors span
+        // [-0.5, n-0.5]; y is reversed to match the main axis's autorange.
+        xaxis2: mirrorAxis({ overlaying: "x", side: "top", range: [-0.5, n - 0.5], tickangle: -60 }),
+        yaxis2: mirrorAxis({ overlaying: "y", side: "right", range: [n - 0.5, -0.5] }),
+      }, { displayModeBar: false, responsive: false });
+
+      document.getElementById("sim-heatmap").on("plotly_click", (ev) => {
+        const p = ev.points[0];
+        // Only the two correlation traces navigate — not the veil laid over
+        // them (also a heatmap) or the invisible axis anchor.
+        if (!p || p.data.name !== "rho") return;
+        const j = m.labels.indexOf(p.x);
+        if (j >= 0 && m.bot_ids[j]) window.location.href = seasonUrl(`/bots/${m.bot_ids[j]}`);
+      });
+    }
+
+    document.addEventListener("DOMContentLoaded", async () => {
+      const tabs = document.getElementById("sim-tabs");
+      if (!tabs) return;
+      tabs.addEventListener("click", (e) => {
+        const btn = e.target.closest(".sim-tab");
+        if (!btn) return;
+        tabs.querySelectorAll(".sim-tab").forEach((b) => b.classList.toggle("active", b === btn));
+        drawMatrix(btn.dataset.race);
+      });
+      const first = tabs.querySelector(".sim-tab.active") || tabs.querySelector(".sim-tab");
+      if (first) await drawMatrix(first.dataset.race);
+
+      const res = await fetch(seasonUrl("/api/similarity/pairs.json"));
+      const { data } = await res.json();
+      const botCell = (idKey, nameKey, raceKey, ladderKey) => (p) => {
+        const r = p.data;
+        const off = r[ladderKey] ? "" : ` <span class="sim-off" title="No longer on the ladder">off</span>`;
+        return `${raceBadge(r[raceKey])} <a href="${seasonUrl(`/bots/${r[idKey]}`)}">${escapeHtml(r[nameKey])}</a>${off}`;
+      };
+      // Toggle for hiding one author's own bots. An external filter rather than
+      // swapping rowData, so any sort or column filter the reader has set
+      // survives the toggle.
+      let hideSameAuthor = false;
+      const toggle = document.getElementById("sim-hide-same");
+
+      const grid = agGrid.createGrid(document.getElementById("sim-grid"), {
+        rowData: data,
+        domLayout: "autoHeight",
+        autoSizeStrategy: { type: "fitGridWidth", defaultMinWidth: 60 },
+        defaultColDef: { sortable: true, resizable: true, filter: true, minWidth: 60 },
+        columnTypes: { numericColumn: { cellClass: "ag-right-aligned-cell", headerClass: "" } },
+        isExternalFilterPresent: () => hideSameAuthor,
+        doesExternalFilterPass: (node) => !node.data.same_author,
+        columnDefs: [
+          {
+            // The default ordering, as a column you can sort back to. Ranked on
+            // P(rho > 0.5), which needs a large correlation *and* enough
+            // evidence; that statistic is not shown, so without this there is no
+            // way back to it once you sort by something else.
+            headerName: "#", field: "rank", width: 45, minWidth: 45, pinned: "left",
+            type: "numericColumn", filter: false, sort: "asc",
+            headerTooltip: "Default ranking: how far the correlation sits above 0.5 relative to its spread. Click to restore.",
+          },
+          {
+            headerName: "Correlation", field: "rho", width: 95, type: "numericColumn",
+            filter: "agNumberColumnFilter",
+            valueFormatter: (p) => fmtRho(p.value),
+          },
+          {
+            // The width of the posterior — the direct answer to "how well do we
+            // know this number", and what fades the matrix cells. Two pairs can
+            // share a correlation and differ five-fold here.
+            headerName: "Spread", field: "sd", width: 85, type: "numericColumn",
+            filter: "agNumberColumnFilter",
+            headerTooltip: "Posterior standard deviation: how tightly the correlation is pinned down. Smaller is more certain.",
+            valueFormatter: (p) => "±" + p.value.toFixed(2),
+            cellClass: "sim-muted",
+          },
+          { headerName: "Bot A", field: "a_name", width: 160, filter: "agTextColumnFilter",
+            cellRenderer: botCell("a_id", "a_name", "a_race", "a_on_ladder") },
+          { headerName: "ELO A", field: "a_elo", width: 70, type: "numericColumn" },
+          { headerName: "Bot B", field: "b_name", width: 160, filter: "agTextColumnFilter",
+            cellRenderer: botCell("b_id", "b_name", "b_race", "b_on_ladder") },
+          { headerName: "ELO B", field: "b_elo", width: 70, type: "numericColumn" },
+          {
+            // Name the author even when both bots share one — "same author" on
+            // its own hides who, which is the first thing you want to know.
+            headerName: "Author(s)", field: "a_author", width: 150, filter: "agTextColumnFilter",
+            valueGetter: (p) => (p.data.same_author
+              ? `${p.data.a_author} (same author)`
+              : `${p.data.a_author} / ${p.data.b_author}`),
+            cellClassRules: { "sim-muted": (p) => p.data.same_author },
+          },
+          { headerName: "Shared opp.", field: "n", width: 95, type: "numericColumn" },
+          { headerName: "Games", field: "games", width: 80, type: "numericColumn" },
+        ],
+        rowHeight: 32,
+        headerHeight: 36,
+        animateRows: false,
+      });
+
+      const sameCount = data.filter((p) => p.same_author).length;
+      function syncToggle() {
+        toggle.textContent = hideSameAuthor
+          ? `Show same-author pairs (${sameCount} hidden)`
+          : `Hide same-author pairs (${sameCount})`;
+        toggle.setAttribute("aria-pressed", String(hideSameAuthor));
+        toggle.classList.toggle("active", hideSameAuthor);
+      }
+      toggle.addEventListener("click", () => {
+        hideSameAuthor = !hideSameAuthor;
+        grid.onFilterChanged();
+        syncToggle();
+      });
+      syncToggle();
+    });
+  </script>
+{% endblock %}

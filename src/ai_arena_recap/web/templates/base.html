@@ -27,6 +27,7 @@
       <a class="brand" href="{{ season_base }}/">AI Arena Recap</a>
       <a class="nav-link{% if request.url.path == '/' %} active{% endif %}" href="{{ season_base }}/">Leaderboard</a>
       <a class="nav-link{% if request.url.path == '/rankings' %} active{% endif %}" href="{{ season_base }}/rankings">Top 10 Rankings</a>
+      <a class="nav-link{% if request.url.path == '/similarity' %} active{% endif %}" href="{{ season_base }}/similarity">Similarity</a>
       {# Season switcher: keeps the visitor on the same sub-path (a bot page
          stays on that bot) but scoped to the season they picked. With a single
          season in the DB it degrades to the plain name it replaced. #}
