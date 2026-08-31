@@ -182,13 +182,17 @@ async def sync_all(
 
             season.reset()
 
-            # Pre-warm the /rankings cache off the event loop so the first
-            # visitor after this sync never waits on the aggregate queries. A
-            # no-op when the data fingerprint is unchanged; never raises.
+            # Pre-warm the /rankings and /similarity caches off the event loop so
+            # the first visitor after this sync never waits on the aggregate
+            # queries or the pairwise model. Both are a no-op when the data
+            # fingerprint is unchanged, and neither raises.
             # Imported lazily to keep the web layer out of the sync module's
             # import graph.
             from ai_arena_recap.web.rankings import warm_rankings
+            from ai_arena_recap.web.similarity import warm_similarity
+
             await asyncio.to_thread(warm_rankings)
+            await asyncio.to_thread(warm_similarity)
         except BaseException as exc:
             _record_outcome(started, time.monotonic() - t0, exc)
             raise

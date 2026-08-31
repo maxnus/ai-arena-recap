@@ -920,3 +920,92 @@ footer {
   .bot-title-block { flex-wrap: wrap; }
   .bot-key-stats { margin-left: 0; flex-basis: 100%; }
 }
+
+/* --- Play-style similarity page --- */
+.sim-caveat {
+  margin: 0.75rem 0 1.25rem;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--yellow);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 0.9rem;
+  max-width: 70ch;
+}
+.sim-caveat strong { color: var(--text); }
+
+.sim-tabs { display: flex; gap: 0.4rem; flex-wrap: wrap; margin: 0.5rem 0 0.75rem; }
+.sim-tab {
+  padding: 0.35rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.sim-tab:hover { color: var(--text); border-color: var(--accent); }
+.sim-tab.active { background: var(--panel); color: var(--text); border-color: var(--accent); }
+.sim-tab-n { color: var(--muted); font-size: 0.8rem; margin-left: 0.2rem; }
+
+/* The matrix is square and grows with the bot count, so it gets its own
+ * scroll container rather than making the page scroll sideways. */
+.sim-heatmap-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+  padding: 0.5rem;
+  margin-bottom: 1.5rem;
+}
+#sim-heatmap { margin: 0 auto; }
+
+.sim-off {
+  font-size: 0.7rem;
+  color: var(--yellow);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 0.25rem;
+  vertical-align: middle;
+}
+.sim-strong { color: var(--text); font-weight: 600; }
+.sim-muted { color: var(--muted); }
+
+/* Matrix key. The fade swatches layer the same neutral veil the heatmap uses
+ * over a full-strength correlation colour, so the key is built the same way
+ * the cells are rather than approximating them. */
+.sim-key {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  margin: 0 0 0.75rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.sim-key-label { color: var(--muted); }
+.sim-key-ramp {
+  width: 110px;
+  height: 10px;
+  border-radius: 2px;
+  border: 1px solid var(--border);
+  background: linear-gradient(to right, #3d4450, #664d52, #8e5453, #b75952, #e05c4f);
+}
+.sim-key-ends { color: var(--muted); font-variant-numeric: tabular-nums; }
+.sim-key-sep {
+  width: 1px;
+  height: 14px;
+  background: var(--border);
+  margin: 0 0.35rem;
+}
+
+/* Same-author pairs get their own positive arm — pale slate instead of red,
+ * separating from the red arm mainly by lightness so it survives colour-vision
+ * deficiency. See the comment on SAME_AUTHOR_SCALE in similarity.html. */
+.sim-key-ramp-same {
+  background: linear-gradient(to right, #3d4450, #3f5573, #3f6698, #3e76be, #3987e5);
+}
+
+.sim-toolbar { display: flex; gap: 0.4rem; flex-wrap: wrap; margin: 0.25rem 0 0.6rem; }
