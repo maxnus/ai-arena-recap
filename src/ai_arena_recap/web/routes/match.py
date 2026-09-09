@@ -5,8 +5,8 @@ from fastapi.responses import FileResponse, RedirectResponse
 from sqlmodel import Session, select
 
 from ai_arena_recap.api_client import AiArenaClient
-from ai_arena_recap.config import settings
 from ai_arena_recap.models import Bot, Map, Match, MatchParticipation
+from ai_arena_recap.sync.replays import find_local_replay
 from ai_arena_recap.web.deps import get_session, render
 
 log = logging.getLogger(__name__)
@@ -44,23 +44,25 @@ async def match_replay(match_id: int, session: Session = Depends(get_session)):
     if match is None:
         raise HTTPException(status_code=404, detail="Match not found")
 
-    if settings.replay_cache_enabled:
-        local_path = settings.replay_dir / f"{match_id}.SC2Replay"
-        if local_path.is_file():
-            map_obj = session.get(Map, match.map_id) if match.map_id else None
-            parts = [str(match_id)]
-            if match.bot1_name:
-                parts.append(match.bot1_name)
-            if match.bot2_name:
-                parts.append(match.bot2_name)
-            if map_obj:
-                parts.append(map_obj.name)
-            filename = "_".join(parts) + ".SC2Replay"
-            return FileResponse(
-                path=str(local_path),
-                media_type="application/octet-stream",
-                filename=filename,
-            )
+    # The archive is served whether or not the live rolling cache is enabled:
+    # those are separate stores, and a season we deliberately kept should not
+    # stop being served because the live cache is switched off.
+    local_path = find_local_replay(session, match_id)
+    if local_path is not None:
+        map_obj = session.get(Map, match.map_id) if match.map_id else None
+        parts = [str(match_id)]
+        if match.bot1_name:
+            parts.append(match.bot1_name)
+        if match.bot2_name:
+            parts.append(match.bot2_name)
+        if map_obj:
+            parts.append(map_obj.name)
+        filename = "_".join(parts) + ".SC2Replay"
+        return FileResponse(
+            path=str(local_path),
+            media_type="application/octet-stream",
+            filename=filename,
+        )
 
     try:
         async with AiArenaClient() as client:

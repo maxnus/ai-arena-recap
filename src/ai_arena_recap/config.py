@@ -56,6 +56,25 @@ class Settings(BaseSettings):
     replay_sync_interval_seconds: int = 300
     replay_download_concurrency: int = 4
 
+    # --- season replay archive (sync/replay_archive.py) ---
+    # Defaults are deliberately gentle. Replays come from aiarena's S3 bucket,
+    # so the egress is on their bill, and a season is a couple of hundred GB of
+    # it: 2 MB/s spends that over about a day and a half, which is invisible
+    # next to the ladder's own traffic. The listing requests hit aiarena's own
+    # Django box, which is the fragile half — a previous backfill degraded it
+    # for two hours at ~26 requests/min, so the archive stays well under that.
+    replay_archive_bytes_per_second: float = 2_000_000
+    replay_archive_api_rate_per_minute: float = 10.0
+    replay_archive_concurrency: int = 4
+    # Replay sizes have a long tail: median 326 KB but p90 2.1 MB and a 30 MB
+    # maximum, because a game that runs to the step limit records every frame
+    # of it. Ties alone average 9 MB and are a quarter of a season's bytes. A
+    # 3 MB cap therefore keeps 95% of the replays for half the disk — 118 GB
+    # rather than 220 GB for 2026 Season 1. Oversized files are recognised from
+    # the response header and skipped before their body transfers, so the cap
+    # saves aiarena's egress too. 0 disables it.
+    replay_archive_max_file_mb: float = 3.0
+
     @property
     def database_url(self) -> str:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)

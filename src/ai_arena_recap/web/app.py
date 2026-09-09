@@ -191,6 +191,27 @@ async def lifespan(app: FastAPI):
             task.cancel()
 
 
+def _archive_counts() -> dict[str, int]:
+    """Replays held per archived season, keyed by competition id.
+
+    Reads the `c<id>/` subdirectories of the replay root (see
+    sync/replays.py for the layout). Returns {} when nothing is archived.
+    """
+    root = settings.replay_dir
+    if not root.is_dir():
+        return {}
+    counts: dict[str, int] = {}
+    for child in root.iterdir():
+        if not child.is_dir() or not child.name.startswith("c"):
+            continue
+        try:
+            competition_id = int(child.name[1:])
+        except ValueError:
+            continue
+        counts[str(competition_id)] = sum(1 for _ in child.glob("*.SC2Replay"))
+    return counts
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="AI Arena Recap", lifespan=lifespan)
     # Starlette runs the *last* added middleware outermost, so this reads
@@ -233,6 +254,10 @@ def create_app() -> FastAPI:
         replay_cache = {
             "enabled": settings.replay_cache_enabled,
             "cached_count": len(list(settings.replay_dir.glob("*.SC2Replay"))) if settings.replay_cache_enabled else 0,
+            # Archived seasons, counted from their own subdirectories. Cheap
+            # because the archive is sharded per competition and this only
+            # counts entries; it never stats them.
+            "archived": _archive_counts(),
         }
         return JSONResponse({
             "competition_id": settings.competition_id,

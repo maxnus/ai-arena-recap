@@ -10,12 +10,55 @@ from sqlmodel import Session, select
 from ai_arena_recap.api_client import AiArenaClient
 from ai_arena_recap.config import settings
 from ai_arena_recap.db import get_session
-from ai_arena_recap.models import Match
+from ai_arena_recap.models import Match, Round
 from ai_arena_recap.sync.common import utcnow
 
 log = logging.getLogger(__name__)
 
 _lock = asyncio.Lock()
+
+
+# ----- on-disk layout -----
+#
+# The replay root holds the live rolling cache, one flat `<match_id>.SC2Replay`
+# per file, and `_cleanup_old_replays` deletes from it on a 14-day window.
+# Archived seasons live one directory down, in `c<competition_id>/`.
+#
+# That split is the whole safety mechanism: the cleanup below globs
+# `*.SC2Replay` in the root, and `glob` does not recurse, so an archived season
+# is structurally out of its reach rather than protected by a condition someone
+# could later forget. It also keeps either directory to a size `scandir` can
+# walk quickly — a quarter of a million files in one flat directory would be
+# re-globbed by the cleanup every five minutes and by /healthz on every hit.
+
+
+def archive_dir(competition_id: int, *, create: bool = True) -> Path:
+    """Directory holding one archived season's replays."""
+    path = settings.replay_path / f"c{competition_id}"
+    if create:
+        path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def find_local_replay(session: Session, match_id: int) -> Path | None:
+    """The stored replay for a match, from the live cache or the archive.
+
+    Checked cheapest-first: the live cache path needs no query at all, and only
+    a miss there costs the round -> competition lookup.
+    """
+    live = settings.replay_dir / f"{match_id}.SC2Replay"
+    if live.is_file():
+        return live
+
+    competition_id = session.exec(
+        select(Round.competition_id)
+        .join(Match, Match.round_id == Round.id)  # type: ignore[arg-type]
+        .where(Match.id == match_id)
+    ).first()
+    if competition_id is None:
+        return None
+    archived = archive_dir(competition_id, create=False) / f"{match_id}.SC2Replay"
+    return archived if archived.is_file() else None
 
 
 def _cleanup_old_replays(session: Session, replay_dir: Path, max_age_days: int) -> int:
