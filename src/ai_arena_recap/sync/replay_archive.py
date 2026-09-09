@@ -167,6 +167,25 @@ def _existing_match_ids(path: Path) -> set[int]:
     return found
 
 
+def _clear_partial_downloads(path: Path) -> int:
+    """Delete part-written `.tmp` files left by a previous run.
+
+    Interrupting a run is expected — it is the documented way to stop one — and
+    it leaves however many downloads were in flight as `.tmp` files. Nothing
+    else would ever remove them: the live cache's cleanup sweeps `*.tmp` in the
+    replay root only, and `glob` does not recurse into the archive. Without
+    this, every interruption permanently leaks a few megabytes.
+
+    Only safe because one archive run per directory is assumed; a second
+    concurrent run would delete the first's in-flight downloads.
+    """
+    removed = 0
+    for tmp in path.glob("*.SC2Replay.tmp"):
+        tmp.unlink(missing_ok=True)
+        removed += 1
+    return removed
+
+
 def _page_size(limiter: ByteRateLimiter) -> int:
     """How many URLs to hold at once, given how fast we can drain them.
 
@@ -327,6 +346,9 @@ async def archive_replays(
             if stats.budget_reached:
                 break
             dest_dir = archive_dir(competition_id)
+            partial = _clear_partial_downloads(dest_dir)
+            if partial:
+                log.info("Cleared %d part-written replay(s) from an interrupted run", partial)
             have = _existing_match_ids(dest_dir)
             rounds = list(session.exec(
                 select(Round.id)

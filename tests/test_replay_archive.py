@@ -288,6 +288,23 @@ class TestArchiveReplays:
         assert stats.bytes >= 2500
 
     @respx.mock
+    def test_clears_part_written_files_from_an_interrupted_run(self, session, replay_root):
+        """Interrupting is the documented way to stop a run, so its leftovers
+        must not accumulate — nothing else sweeps the archive directory."""
+        _seed_season(session, matches_per_round=1)
+        orphan = archive_dir(36) / "9999.SC2Replay.tmp"
+        orphan.write_bytes(b"half a replay")
+        respx.get(url__startswith="https://aiarena.net/api/matches/").mock(
+            return_value=httpx.Response(200, json=_mock_round_page(501, [1001]))
+        )
+        respx.get(url__startswith=S3).mock(return_value=httpx.Response(200, content=b"x"))
+
+        stats = _run_archive(session, replay_root)
+
+        assert not orphan.exists()
+        assert stats.downloaded == 1
+
+    @respx.mock
     def test_pages_through_a_round_larger_than_one_page(self, session, replay_root):
         """Rounds run to ~1,900 matches, well past the 500-row page ceiling."""
         _seed_season(session, rounds=1, matches_per_round=60)
