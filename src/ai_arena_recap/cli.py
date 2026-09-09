@@ -105,6 +105,68 @@ def sync_replays_cmd(verbose: bool = typer.Option(False, "--verbose", "-v")):
     asyncio.run(sync_replays())
 
 
+@app.command("archive-replays")
+def archive_replays_cmd(
+    competition: list[int] = typer.Option(
+        ..., "--competition", "-c", help="Competition whose replays to archive. Repeat for several."
+    ),
+    mb_per_second: float = typer.Option(
+        None, "--mb-per-second",
+        help="Download bandwidth cap. aiarena pays the S3 egress; the default is deliberately low.",
+    ),
+    api_rate: float = typer.Option(
+        None, "--api-rate", help="Match-listing requests per minute against aiarena.net.",
+    ),
+    max_file_mb: float | None = typer.Option(
+        None, "--max-file-mb",
+        help="Skip replays larger than this, before their body transfers. The size tail is long "
+             "(p90 2 MB, max 30 MB) and dominated by step-limit ties, so a cap trades a few "
+             "percent of replays for a large fraction of the disk. Defaults to "
+             "REPLAY_ARCHIVE_MAX_FILE_MB; pass 0 for no cap.",
+    ),
+    max_gb: float | None = typer.Option(
+        None, "--max-gb", help="Stop once the archive for these competitions reaches this size.",
+    ),
+    concurrency: int = typer.Option(None, "--concurrency", help="Simultaneous downloads."),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+):
+    """Download and permanently keep a finished season's replays.
+
+    Long-running (a season is ~200 GB and a day or two at the default rate) and
+    safe to interrupt — files on disk are the state, so re-running resumes.
+    Archived replays live in `<replay_dir>/c<competition_id>/` and are never
+    touched by the live cache's cleanup.
+
+    Requires the season's matches to be in the DB already (`sync --competition N`
+    or `backfill -c N`).
+    """
+    _setup_logging(verbose)
+    from ai_arena_recap.api_client import AiArenaClient
+    from ai_arena_recap.config import settings
+    from ai_arena_recap.db import get_session, init_db
+    from ai_arena_recap.sync.replay_archive import archive_replays
+
+    init_db()
+
+    async def _run() -> None:
+        rate = (mb_per_second * 1e6) if mb_per_second else settings.replay_archive_bytes_per_second
+        # `is None` rather than `or`, so an explicit --max-file-mb 0 means
+        # "no cap" instead of falling back to the configured default.
+        cap_mb = settings.replay_archive_max_file_mb if max_file_mb is None else max_file_mb
+        async with AiArenaClient(timeout=120.0) as client:
+            with get_session() as session:
+                await archive_replays(
+                    session, client, list(competition),
+                    download_bytes_per_second=rate,
+                    api_rate_per_minute=api_rate or settings.replay_archive_api_rate_per_minute,
+                    max_file_bytes=int(cap_mb * 2**20) if cap_mb else None,
+                    budget_bytes=int(max_gb * 2**30) if max_gb else None,
+                    concurrency=concurrency or settings.replay_archive_concurrency,
+                )
+
+    asyncio.run(_run())
+
+
 @app.command("serve")
 def serve_cmd(
     host: str = typer.Option("127.0.0.1", "--host"),

@@ -57,7 +57,8 @@ old one becomes an archived season automatically, no data migration.
     is the entry point; called both by the scheduler and the `sync` CLI. It
     syncs the tracked competition plus any archived season due a refresh
     (daily); `sync --competition <id>` imports one season on its own.
-    `replays.py` runs separately and caches recent replay files locally.
+    `replays.py` runs separately and caches recent replay files locally;
+    `replay_archive.py` is the other half of that story (see **Replays**).
   - `web/`
     - `app.py` — FastAPI factory with lifespan-managed APScheduler, the
       page-view middleware and `SeasonMiddleware`.
@@ -66,11 +67,45 @@ old one becomes an archived season automatically, no data migration.
     - `routes/{ladder,bot,match,api}.py` — page + JSON endpoints.
     - `templates/` — Jinja2 (base, _macros, ladder, bot, match).
     - `static/` — `styles.css`, race SVGs, JS helpers.
-  - `cli.py` — typer commands (`init-db`, `sync`, `sync-replays`, `serve`,
-    `probe-replay`).
+  - `cli.py` — typer commands (`init-db`, `sync`, `backfill`, `sync-replays`,
+    `archive-replays`, `serve`, `probe-replay`).
 - `tests/` — pytest with an in-memory SQLite fixture (`tests/conftest.py`
   monkey-patches the global engine so route handlers hit the test DB).
 - `.github/workflows/ci.yml` — lint + test on push to main and on every PR.
+
+## Replays
+
+Two stores, and the difference matters:
+
+- **Live cache** (`sync/replays.py`, `REPLAY_CACHE_ENABLED`) — a rolling
+  `REPLAY_MAX_AGE_DAYS` window of the current season, flat in the replay root
+  as `<match_id>.SC2Replay`, pruned every tick.
+- **Season archive** (`sync/replay_archive.py`,
+  `archive-replays -c <competition_id>`) — a closed season kept permanently, in
+  `<replay_dir>/c<competition_id>/`. Aiarena deletes replays upstream after
+  roughly a year (2025 Pre-Season 1 was 74% gone by Sept 2026), so this is a
+  race against their cleanup.
+
+The cleanup globs `*.SC2Replay` in the replay root and `glob` does not recurse,
+so the archive is structurally out of its reach. Keep it that way: don't flatten
+the layout, and don't switch the cleanup to `rglob`.
+
+Both are served by `/matches/{id}/replay` via `find_local_replay`, which prefers
+the live cache and falls back to the archive; a miss redirects to a freshly
+signed S3 URL.
+
+Sizing, measured on 2026 Season 1 (240k matches, 750-file sample): median replay
+326 KB, mean ~1 MB, p90 2.1 MB, max 30 MB — about **220 GB** for a full season.
+Step-limit ties average 9 MB and are ~27% of the bytes, so `--max-file-mb` buys a
+lot of disk for few replays. `REPLAY_ARCHIVE_MAX_FILE_MB` defaults to 3, which
+keeps ~95% of replays for ~118 GB; pass `--max-file-mb 0` for no cap.
+
+Throttling is not optional. Listing hits aiarena's own Django box, which a
+previous backfill degraded for two hours at ~26 requests/min; downloads hit their
+S3 bucket, whose egress they pay for. Hence two separate limiters —
+`--api-rate` (requests/min) and `--mb-per-second` (bandwidth) — and defaults in
+`config.py` that are deliberately slow. Runs are resumable: files on disk are the
+only state.
 
 ## Running locally
 
