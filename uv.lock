@@ -34,7 +34,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aiarena-api", git = "https://github.com/maxnus/aiarena-api?rev=ba6ba72e7fa30ff330dab570e865f6aa76656d6d" },
+    { name = "aiarena-api", git = "https://github.com/maxnus/aiarena-api?rev=v0.1.0" },
     { name = "apscheduler", specifier = ">=3.10,<4" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.28" },
@@ -57,7 +57,7 @@ dev = [
 [[package]]
 name = "aiarena-api"
 version = "0.0.1.dev2+gba6ba72e7"
-source = { git = "https://github.com/maxnus/aiarena-api?rev=ba6ba72e7fa30ff330dab570e865f6aa76656d6d#ba6ba72e7fa30ff330dab570e865f6aa76656d6d" }
+source = { git = "https://github.com/maxnus/aiarena-api?rev=v0.1.0#ba6ba72e7fa30ff330dab570e865f6aa76656d6d" }
 dependencies = [
     { name = "httpx" },
 ]
