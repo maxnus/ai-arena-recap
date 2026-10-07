@@ -14,7 +14,7 @@ dependencies = [
     "python-dotenv>=1.0",
     "typer>=0.15",
     "numpy>=2.0",
-    "aiarena-api @ git+https://github.com/maxnus/aiarena-api@v0.1.0",
+    "aiarena-api>=0.1.1",
 ]
 
 [project.scripts]
@@ -23,11 +23,6 @@ ai-arena-recap = "ai_arena_recap.cli:app"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
-
-# aiarena-api is installed from its git repository, which hatchling refuses by default. The recap is deployed from a
-# checkout, never published, so nothing downstream has to resolve that reference.
-[tool.hatch.metadata]
-allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ai_arena_recap"]
