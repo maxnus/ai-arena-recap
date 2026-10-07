@@ -34,7 +34,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aiarena-api", specifier = ">=0.1.1" },
+    { name = "aiarena-api", specifier = ">=0.1.2,<0.2" },
     { name = "apscheduler", specifier = ">=3.10,<4" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.28" },
@@ -56,14 +56,14 @@ dev = [
 
 [[package]]
 name = "aiarena-api"
-version = "0.1.1"
+version = "0.1.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c2/5f/93754a4e1b154d73d235b0669a1bbae5a4a19bd2798dcc3ac066d5870b62/aiarena_api-0.1.1.tar.gz", hash = "sha256:d76e91b625f42c4b7fb8c0521f047f5ea4608f2763e4e87cc0c0871342b0a0b9", size = 22765, upload-time = "2026-10-07T13:45:39.763Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/6c/d5/ae1a089096eda9928ccb565f5e778fea3b5311fbf95cd8293b3419f836e0/aiarena_api-0.1.2.tar.gz", hash = "sha256:69bdf5c66b921cec33bfac9fb66bf07c8d13298e3b696bb0719f507f1205db05", size = 23206, upload-time = "2026-10-07T14:08:10.306Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ea/46/efe80222cd521ef85684e02b57d701cf9a61483b3e5c4fd2335fa395ac27/aiarena_api-0.1.1-py3-none-any.whl", hash = "sha256:0ac32ea9a3867b3ebe801ae3bea33b9efe5f340a2063b3679335c26fc7daf448", size = 12032, upload-time = "2026-10-07T13:45:38.99Z" },
+    { url = "https://files.pythonhosted.org/packages/3f/94/d989281ee8ed3e02792c6b5c9858ab0bbab74bdd9d0b2d37de956129ca14/aiarena_api-0.1.2-py3-none-any.whl", hash = "sha256:a93acb6d97b2d36fe1225808ad402a156ee6e6231796f89fb513a115231e96a0", size = 12191, upload-time = "2026-10-07T14:08:09.363Z" },
 ]
 
 [[package]]
