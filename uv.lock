@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.12'",
@@ -11,6 +11,7 @@ name = "ai-arena-recap"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "aiarena-api" },
     { name = "apscheduler" },
     { name = "fastapi" },
     { name = "httpx" },
@@ -33,6 +34,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aiarena-api", git = "https://github.com/maxnus/aiarena-api?rev=ba6ba72e7fa30ff330dab570e865f6aa76656d6d" },
     { name = "apscheduler", specifier = ">=3.10,<4" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.28" },
@@ -50,6 +52,14 @@ dev = [
     { name = "pytest", specifier = ">=8.3" },
     { name = "respx", specifier = ">=0.22" },
     { name = "ruff", specifier = ">=0.8" },
+]
+
+[[package]]
+name = "aiarena-api"
+version = "0.0.1.dev2+gba6ba72e7"
+source = { git = "https://github.com/maxnus/aiarena-api?rev=ba6ba72e7fa30ff330dab570e865f6aa76656d6d#ba6ba72e7fa30ff330dab570e865f6aa76656d6d" }
+dependencies = [
+    { name = "httpx" },
 ]
 
 [[package]]

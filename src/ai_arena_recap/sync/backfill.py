@@ -17,7 +17,7 @@ many seasons want rows from it). Import several competitions in one call when
 you want several — that is where the sharing happens.
 
 Two things learned by getting this wrong against the live API, both handled in
-`AiArenaClient` rather than here:
+aiarena-api's `AiArenaClient` rather than here:
 
 * **Rate is what matters.** ~26 requests/min degraded aiarena's participation
   endpoint over about two hours — the offset at which requests failed slid
@@ -35,8 +35,8 @@ import logging
 import time
 
 from sqlmodel import Session, func, select
+from aiarena_api import AiArenaClient
 
-from ai_arena_recap.api_client import AiArenaClient
 from ai_arena_recap.config import settings
 from ai_arena_recap.models import CompetitionParticipation, Match, MatchParticipation, Round
 from ai_arena_recap.sync.bots import sync_bots
@@ -205,13 +205,7 @@ async def _plan_requests(
     mean something. Run before pacing is set: it is a short burst of the same
     shape the live sync makes routinely, and everything after it is paced.
     """
-    url = f"{client.base_url}/match-participations/"
-
-    async def career(bot_id: int) -> int:
-        d = await client._get(url, {"format": "json", "limit": 1, "bot": bot_id})
-        return int(d["count"])
-
-    careers = await asyncio.gather(*[career(b) for b in bot_ids])
+    careers = await asyncio.gather(*[client.count("/match-participations/", {"bot": b}) for b in bot_ids])
     page = settings.backfill_page_size
     participation_pages = sum((c + page - 1) // page for c in careers)
 
@@ -235,9 +229,7 @@ async def _plan_requests(
     if not rounds and not _in_scope_match_ids(session, competition_ids):
         # Rounds aren't imported yet on a first run; size them from the API.
         for competition_id in competition_ids:
-            d = await client._get(f"{client.base_url}/rounds/",
-                                  {"format": "json", "limit": 1, "competition": competition_id})
-            rounds += int(d["count"])
+            rounds += await client.count("/rounds/", {"competition": competition_id})
         matches = sum(_expected_rows(session, competition_ids).values()) // 2
     # One request per round, plus an extra page per 500 matches beyond the first.
     match_pages = rounds + matches // settings.api_page_size

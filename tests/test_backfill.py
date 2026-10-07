@@ -9,9 +9,13 @@ rows survive the trip.
 import asyncio
 from datetime import datetime, timezone
 
+import httpx
 import pytest
+import respx
 from sqlmodel import select
 
+from ai_arena_recap.api_client import new_client
+from ai_arena_recap.config import settings
 from ai_arena_recap.models import Competition, Match, MatchParticipation, Round
 from ai_arena_recap.sync import backfill as backfill_module
 from ai_arena_recap.sync.backfill import backfill
@@ -425,3 +429,29 @@ class TestSkipHeuristicCanBeWrong:
         again = self._client_with_error_bot()
         asyncio.run(backfill(session, again, [COMP]))
         assert again.bots_paged == []
+
+
+class TestPlanRequests:
+    """The planner runs only for a paced backfill (`--spread-hours`), so nothing
+    else would notice it asking the API the wrong question."""
+
+    @respx.mock
+    def test_a_first_run_is_sized_from_the_api(self, session):
+        careers = respx.get(f"{settings.api_base_url}/match-participations/").mock(
+            return_value=httpx.Response(200, json={"count": 4500, "results": []})
+        )
+        rounds = respx.get(f"{settings.api_base_url}/rounds/").mock(
+            return_value=httpx.Response(200, json={"count": 120, "results": []})
+        )
+
+        async def _run():
+            async with new_client() as client:
+                return await backfill_module._plan_requests(session, client, [COMP], [10, 20])
+
+        participation_pages, match_pages = asyncio.run(_run())
+
+        assert participation_pages == 2 * -(-4500 // settings.backfill_page_size)
+        assert match_pages == 120  # No standings stored yet, so no match pages beyond one per round.
+        assert sorted(c.request.url.params["bot"] for c in careers.calls) == ["10", "20"]
+        assert {c.request.url.params["limit"] for c in careers.calls} == {"1"}
+        assert rounds.calls.last.request.url.params["competition"] == str(COMP)

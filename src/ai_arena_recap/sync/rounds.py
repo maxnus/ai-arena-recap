@@ -3,8 +3,8 @@ import logging
 
 from sqlalchemy import update
 from sqlmodel import Session, select
+from aiarena_api import AiArenaClient
 
-from ai_arena_recap.api_client import AiArenaClient
 from ai_arena_recap.models import Match, MatchParticipation, Round
 from ai_arena_recap.sync.common import ensure_bot_stub, parse_dt, upsert, utcnow
 

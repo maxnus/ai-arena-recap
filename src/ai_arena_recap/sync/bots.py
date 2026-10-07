@@ -3,8 +3,8 @@ import logging
 from datetime import timedelta
 
 from sqlmodel import Session, select
+from aiarena_api import AiArenaClient
 
-from ai_arena_recap.api_client import AiArenaClient
 from ai_arena_recap.config import settings
 from ai_arena_recap.models import Bot
 from ai_arena_recap.sync.common import parse_dt, upsert, utcnow

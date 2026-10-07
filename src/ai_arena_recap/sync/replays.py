@@ -6,8 +6,9 @@ from pathlib import Path
 
 import httpx
 from sqlmodel import Session, select
+from aiarena_api import AiArenaClient
 
-from ai_arena_recap.api_client import AiArenaClient
+from ai_arena_recap.api_client import new_client
 from ai_arena_recap.config import settings
 from ai_arena_recap.db import get_session
 from ai_arena_recap.models import Match, Round
@@ -149,7 +150,7 @@ async def sync_replays() -> None:
         downloaded = 0
         failed = 0
 
-        async with AiArenaClient() as client:
+        async with new_client() as client:
             async with httpx.AsyncClient(timeout=60.0) as http:
                 batch_size = 50
                 for i in range(0, len(pending), batch_size):

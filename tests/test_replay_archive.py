@@ -12,7 +12,7 @@ import httpx
 import pytest
 import respx
 
-from ai_arena_recap.api_client import AiArenaClient
+from ai_arena_recap.api_client import new_client
 from ai_arena_recap.models import Competition, Match, Round
 from ai_arena_recap.sync.common import upsert
 from ai_arena_recap.sync.replay_archive import (
@@ -131,7 +131,7 @@ def _run_archive(session, replay_root, **kwargs):
     happened.
     """
     async def go():
-        async with AiArenaClient(token="t") as client:
+        async with new_client() as client:
             return await archive_replays(
                 session, client, [36],
                 download_bytes_per_second=0,
@@ -323,7 +323,7 @@ class TestArchiveReplays:
 
         # 20 kB/s forces a 25-row page, so 60 matches need three of them.
         async def go():
-            async with AiArenaClient(token="t") as client:
+            async with new_client() as client:
                 return await archive_replays(
                     session, client, [36],
                     download_bytes_per_second=20_000, api_rate_per_minute=None,

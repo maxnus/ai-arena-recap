@@ -1,6 +1,6 @@
 from sqlmodel import Session
+from aiarena_api import AiArenaClient
 
-from ai_arena_recap.api_client import AiArenaClient
 from ai_arena_recap.models import Competition, CompetitionParticipation
 from ai_arena_recap.sync.common import ensure_bot_stub, parse_dt, upsert, utcnow
 

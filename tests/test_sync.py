@@ -17,7 +17,7 @@ from ai_arena_recap.sync.runner import archived_due
 
 
 class _NullClient:
-    """AiArenaClient stand-in for sync_all tests: makes no requests."""
+    """Client stand-in for sync_all tests: makes no requests."""
 
     async def __aenter__(self):
         return self
@@ -44,7 +44,7 @@ def _stub_sync_all(monkeypatch, **overrides) -> list[str]:
         return set()
 
     stubs = {
-        "AiArenaClient": _NullClient,
+        "new_client": lambda **_: _NullClient(),
         "sync_maps": noop,
         "_sync_competition_tree": fake_tree,
         "archived_due": lambda session: [],

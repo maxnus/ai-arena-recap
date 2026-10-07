@@ -75,7 +75,7 @@ def backfill_cmd(
     `sync --competition N --max-rounds 0` instead for standings only.
     """
     _setup_logging(verbose)
-    from ai_arena_recap.api_client import AiArenaClient
+    from ai_arena_recap.api_client import new_client
     from ai_arena_recap.db import get_session, init_db
     from ai_arena_recap.sync.backfill import backfill
 
@@ -84,7 +84,7 @@ def backfill_cmd(
     async def _run() -> None:
         from ai_arena_recap.config import settings
 
-        async with AiArenaClient(timeout=settings.backfill_timeout_seconds) as client:
+        async with new_client(timeout=settings.backfill_timeout_seconds) as client:
             with get_session() as session:
                 await backfill(
                     session, client, list(competition), force=force,
@@ -141,7 +141,7 @@ def archive_replays_cmd(
     or `backfill -c N`).
     """
     _setup_logging(verbose)
-    from ai_arena_recap.api_client import AiArenaClient
+    from ai_arena_recap.api_client import new_client
     from ai_arena_recap.config import settings
     from ai_arena_recap.db import get_session, init_db
     from ai_arena_recap.sync.replay_archive import archive_replays
@@ -153,7 +153,7 @@ def archive_replays_cmd(
         # `is None` rather than `or`, so an explicit --max-file-mb 0 means
         # "no cap" instead of falling back to the configured default.
         cap_mb = settings.replay_archive_max_file_mb if max_file_mb is None else max_file_mb
-        async with AiArenaClient(timeout=120.0) as client:
+        async with new_client(timeout=120.0) as client:
             with get_session() as session:
                 await archive_replays(
                     session, client, list(competition),
@@ -198,7 +198,7 @@ def probe_replay_cmd(verbose: bool = typer.Option(False, "--verbose", "-v")):
     import httpx
     from sqlmodel import Session, select
 
-    from ai_arena_recap.api_client import AiArenaClient
+    from ai_arena_recap.api_client import new_client
     from ai_arena_recap.db import engine
     from ai_arena_recap.models import Match
 
@@ -210,7 +210,7 @@ def probe_replay_cmd(verbose: bool = typer.Option(False, "--verbose", "-v")):
         if match is None:
             typer.echo("No finished matches in DB; run sync first.")
             raise typer.Exit(1)
-        async with AiArenaClient() as client:
+        async with new_client() as client:
             data = await client.get_match(match.id)
         url = (data.get("result") or {}).get("replay_file")
         if not url:
