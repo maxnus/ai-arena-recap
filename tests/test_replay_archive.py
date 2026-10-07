@@ -11,8 +11,8 @@ from datetime import datetime, timedelta, timezone
 import httpx
 import pytest
 import respx
+from aiarena_api import AiArenaClient
 
-from ai_arena_recap.api_client import AiArenaClient
 from ai_arena_recap.models import Competition, Match, Round
 from ai_arena_recap.sync.common import upsert
 from ai_arena_recap.sync.replay_archive import (

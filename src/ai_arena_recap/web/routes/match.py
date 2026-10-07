@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, RedirectResponse
 from sqlmodel import Session, select
 
-from ai_arena_recap.api_client import AiArenaClient
+from ai_arena_recap.api_client import new_client
 from ai_arena_recap.models import Bot, Map, Match, MatchParticipation
 from ai_arena_recap.sync.replays import find_local_replay
 from ai_arena_recap.web.deps import get_session, render
@@ -65,7 +65,7 @@ async def match_replay(match_id: int, session: Session = Depends(get_session)):
         )
 
     try:
-        async with AiArenaClient() as client:
+        async with new_client() as client:
             data = await client.get_match(match_id)
     except Exception as exc:  # noqa: BLE001
         log.warning("Failed to fetch fresh replay URL for match %s: %s", match_id, exc)

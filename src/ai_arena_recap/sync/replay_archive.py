@@ -50,8 +50,8 @@ from pathlib import Path
 
 import httpx
 from sqlmodel import Session, select
+from aiarena_api import AiArenaClient
 
-from ai_arena_recap.api_client import AiArenaClient
 from ai_arena_recap.models import Round
 from ai_arena_recap.sync.replays import archive_dir
 
@@ -86,7 +86,7 @@ class ByteRateLimiter:
 
     Tokens are allowed to go negative and the caller sleeps off the deficit,
     which queues concurrent writers in arrival order without holding the lock
-    across the sleep — the same shape as ``AiArenaClient._await_pace``.
+    across the sleep — the same shape as aiarena-api's ``Pacer.wait``.
     """
 
     def __init__(self, bytes_per_second: float, *, burst_seconds: float = 2.0) -> None:
@@ -268,12 +268,9 @@ async def _list_round_page(
 
     ``ordering=id`` is what makes offset paging well-defined; without it pages
     overlap and skip, the same way they did on `/match-participations/`
-    (see api_client).
+    (see `AiArenaClient.list_bot_match_participations` in aiarena-api).
     """
-    data = await client._get(
-        f"{client.base_url}/matches/",
-        {"format": "json", "limit": limit, "offset": offset, "round": round_id, "ordering": "id"},
-    )
+    data = await client.get("/matches/", {"limit": limit, "offset": offset, "round": round_id, "ordering": "id"})
     results = data.get("results", [])
     pairs: list[tuple[int, str]] = []
     missing = 0

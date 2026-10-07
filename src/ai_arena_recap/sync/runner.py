@@ -7,8 +7,9 @@ from typing import Any
 
 from sqlalchemy import or_
 from sqlmodel import Session, select
+from aiarena_api import AiArenaClient
 
-from ai_arena_recap.api_client import AiArenaClient
+from ai_arena_recap.api_client import new_client
 from ai_arena_recap.config import settings
 from ai_arena_recap.db import get_session
 from ai_arena_recap.models import Competition
@@ -151,7 +152,7 @@ async def sync_all(
         # Every exit from here on is recorded, so /healthz can report whether
         # the last tick finished rather than only that one started.
         try:
-            async with AiArenaClient() as client:
+            async with new_client() as client:
                 with get_session() as session:
                     await sync_maps(session, client)
                     bot_ids = await _sync_competition_tree(session, client, primary, max_rounds=max_rounds)
