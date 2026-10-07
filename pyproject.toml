@@ -14,7 +14,7 @@ dependencies = [
     "python-dotenv>=1.0",
     "typer>=0.15",
     "numpy>=2.0",
-    "aiarena-api @ git+https://github.com/maxnus/aiarena-api@ba6ba72e7fa30ff330dab570e865f6aa76656d6d",
+    "aiarena-api @ git+https://github.com/maxnus/aiarena-api@v0.1.0",
 ]
 
 [project.scripts]
