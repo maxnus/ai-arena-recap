@@ -53,11 +53,13 @@ old one becomes an archived season automatically, no data migration.
   - `db.py` — SQLite engine + `init_db()`.
   - `api_client.py` — `new_client()`, the
     [aiarena-api](https://github.com/maxnus/aiarena-api) client configured
-    from settings. Retry/backoff, pacing and the bulk participation pager live
-    in that package: change them there, then bump the pinned revision in
-    `pyproject.toml` and run `uv lock`. CI and the deploy install with
-    `uv sync --frozen`, which follows `uv.lock` without checking it against
-    `pyproject.toml`, so a bump without the lock ships the old revision.
+    from settings. Retry/backoff, pacing, paging and the bulk participation
+    pager live in that package, installed from PyPI: change them there and
+    release it, then take the new version with
+    `uv lock --upgrade-package aiarena-api` (raising the lower bound in
+    `pyproject.toml` if the recap needs it). CI and the deploy install with
+    `uv sync --frozen`, which follows `uv.lock` as it is, so a release the
+    lock doesn't name never reaches the site.
   - `sync/` — incremental sync from the API into the DB. `runner.sync_all`
     is the entry point; called both by the scheduler and the `sync` CLI. It
     syncs the tracked competition plus any archived season due a refresh
