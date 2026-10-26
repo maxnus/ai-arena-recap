@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     # /s/<slug>/ — see web/season.py. Bump this at each season rollover (the
     # sync logs a warning and /healthz reports competition_closed when the
     # tracked competition ends).
-    competition_id: int = 37
+    competition_id: int = 38
     # Closed seasons never change, so re-sync them at most this often. Cheap
     # insurance that a season archived mid-sync still completes itself.
     archive_refresh_seconds: int = 86400

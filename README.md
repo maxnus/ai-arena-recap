@@ -30,7 +30,7 @@ Optional settings:
 
 | Variable | Default | Description |
 |---|---|---|
-| `competition_id` | `37` | Competition served at the un-prefixed URLs ("this season") |
+| `competition_id` | `38` | Competition served at the un-prefixed URLs ("this season") |
 | `archive_refresh_seconds` | `86400` | How often to re-check archived seasons |
 | `sync_interval_seconds` | `600` | Background sync frequency |
 | `db_path` | `ai_arena_recap.db` | SQLite database path |
